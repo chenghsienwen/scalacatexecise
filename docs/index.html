@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>scala cat execise</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif', 'Helvetica'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz', 'Gill Sans';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono', 'Consolas', 'Courier New'; }
+      .image-50 img {
+        width: 50%;
+      }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+
+
+
+class: center, middle
+
+# scala cat execise
+Chenghsien Wen • `@JulienTruffaut`
+
+
+???
+- notes here
+- see https://remarkjs.com/#1
+
+---
+# execise from scala with cats 2 book
+
+[free download](https://www.scalawithcats.com/ "www.scalawithcats.com")
+
+![:scale 90%](resources/scala-with-cats2.jpeg)
+
+---
+# Agenda
+##  what is category theory?
+##  what is type class in scala?
+##  cats import structure
+##  main type class in cats
+---
+# what is category theory?
+### how things compose and transform
+![:scale 60%](resources/category-theory-graph.png)
+---
+# type class in scala
+```scala
+trait Printable[A] {
+  def format(a: A): String
+}
+
+object PrintableInstance {
+  implicit val strPrint: Printable[String] = new Printable[String] {
+    def format(a: String): String = a
+  }
+  implicit val intPrint: Printable[Int] = new Printable[Int] {
+    def format(a: Int): String = a.toString
+  }
+}
+
+object Printable {
+  def format[A](a: A)(implicit p: Printable[A]): String = p.format(a)
+}
+
+object PrintableSyntax {
+  implicit class PrintableOps[A](a: A)(implicit p: Printable[A]) {
+    def show: String = p.format(a)
+  }
+}
+```
+---
+#run show
+```scala
+import com.vpon.cat.Printable
+import com.vpon.cat.PrintableSyntax.PrintableOps
+import com.vpon.cat.PrintableInstance._
+```
+```scala
+Printable.format("xxx")
+// res0: String = xxx
+
+"aaa".show
+// res1: String = aaa
+```
+---
+# add one more instance
+```scala
+import com.vpon.cat.Printable
+import com.vpon.cat.PrintableSyntax.PrintableOps
+import com.vpon.cat.PrintableInstance._
+
+final case class Cat(name: String, age: Int, color: String)
+
+implicit val catPrint: Printable[Cat] = new Printable[Cat] {
+  def format(cat: Cat): String = {
+    val name = Printable.format(cat.name)
+    val age = Printable.format(cat.age)
+    val color = Printable.format(cat.color)
+    s"$name is a $age year-old $color cat."
+  }
+}
+```
+```scala
+println(Printable.format("xxx"))
+// xxx
+
+println("aaa".show)
+// aaa
+
+println(Cat("meme", 5, "yellow").show)
+// meme is a 5 year-old yellow cat.
+```
+---
+```scala
+case class Person(name: String, age: Int)
+```
+
+```scala
+val john = Person("John", 23)
+// john: Person = Person(John,23)
+
+john.age
+// res5: Int = 23
+
+john.copy(age = 30)
+// res6: Person = Person(John,30)
+```
+
+???
+- see https://github.com/tpolecat/tut
+
+---
+# Scala examples from core module
+
+```scala
+import com.vpon.cat.Foo.{FooInt, FooString}
+```
+
+```scala
+val fooInt = FooInt(5)
+// fooInt: com.vpon.cat.Foo.FooInt = FooInt(5)
+
+val fooString = FooString("Hello World")
+// fooString: com.vpon.cat.Foo.FooString = FooString(Hello World)
+
+val foos = List(fooInt, fooString)
+// foos: List[com.vpon.cat.Foo] = List(FooInt(5), FooString(Hello World))
+```
+
+---
+class: center, middle
+
+# Thanks!
+Code and slides at `chenghsienwen/scalaCatExecise` on GitHub
+
+## Questions?
+
+
+
+
+
+ </textarea>
+    <script src="remark-latest.min.js">
+    </script>
+    <script>
+       remark.macros.scale = function (percentage) {
+          var url = this;
+          return '<img src="' + url + '" style="width: ' + percentage + '" />';
+        };
+        var slideshow = remark.create();
+    </script>
+  </body>
+</html>
