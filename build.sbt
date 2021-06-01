@@ -12,8 +12,10 @@ lazy val baseSettings: Seq[Setting[_]] = Seq(
     "-Ywarn-value-discard",
     "-Xfuture"
   ),
-  resolvers += Resolver.sonatypeRepo("releases")
+  resolvers += Resolver.sonatypeRepo("releases"),
+  libraryDependencies += "org.typelevel" %% "cats-core" % "2.3.0"
 )
+
 
 lazy val scalaCatExecise = project.in(file("."))
   .settings(moduleName := "scalaCatExecise")

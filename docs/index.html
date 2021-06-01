@@ -28,12 +28,13 @@
 class: center, middle
 
 # scala cat execise
-Chenghsien Wen • `@JulienTruffaut`
+Chenghsien Wen • `@chenghsienwen`
 
 
 ???
 - notes here
 - see https://remarkjs.com/#1
+- see https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet
 
 ---
 # execise from scala with cats 2 book
@@ -121,47 +122,150 @@ println(Cat("meme", 5, "yellow").show)
 // meme is a 5 year-old yellow cat.
 ```
 ---
+# show type class in cats
+
 ```scala
+//ref:https://typelevel.org/cats/typeclasses/show.html
+import cats.Show
+import cats.syntax.show._
+
+
 case class Person(name: String, age: Int)
+implicit val showPerson: Show[Person] = Show.show(person => s"name: ${person.name}, age: ${person.age}")
 ```
-
 ```scala
-val john = Person("John", 23)
-// john: Person = Person(John,23)
-
-john.age
-// res5: Int = 23
-
-john.copy(age = 30)
-// res6: Person = Person(John,30)
+println(Person("John", 31).show)
+// name: John, age: 31
 ```
-
-???
-- see https://github.com/tpolecat/tut
+---
+#Eq
+* issue on Eq
+```scala
+List(1, 2, 3).map(Option(_)).filter(item => item == 1)
+// <console>:29: warning: Option[Int] and Int are unrelated: they will most likely never compare equal
+//        List(1, 2, 3).map(Option(_)).filter(item => item == 1)
+//                                                         ^
+// res7: List[Option[Int]] = List()
+```
+* use cats eq for **type safe** equality
+* === compares two objects for equality;
+* =!= compares two objects for inequality.
+```scala
+import cats.Eq
+import cats.instances.all._
+import cats.syntax.eq._
+```
+```scala
+scala> List(1, 2, 3).map(Option(_)).filter(item => item === 1)
+<console>:36: error: type mismatch;
+ found   : Int(1)
+ required: Option[Int]
+       List(1, 2, 3).map(Option(_)).filter(item => item === 1)
+                                                            ^
+```
+---
+#cats import structure
+* cats.x for core/"kernel" types;
+* cats.data for data types such as **Validated, monad transformers**, etc.;
+* cats.syntax.x._ for extension method support, so you can call e.g. sth.asRight, sth.pure, and so on;
+* cats.instances.x._ for actual implicit scope import of implementation of the various typeclasses for specific types, so
+that when you call e.g. sth.pure you don’t get an "implicit not found" error.
 
 ---
-# Scala examples from core module
-
+#main type class in cats
+* Monoid and Semigroup 
+* Functor 
+* Monad and Moand transforer
+* Semigroupal and Applicative 
+* Traverse and Foldable
+---
+###monad type class hierachy
+![:scale 75%](resources/monad-type-class-hierachy.jpeg)
+---
+###definition of monoid: a monoid for a type A is:
+* an operation combine with type (A, A) => A
+* an element empty of type A
 ```scala
-import com.vpon.cat.Foo.{FooInt, FooString}
+trait Monoid[A] {
+  def combine(x: A, y: A): A
+  def empty: A
+}
 ```
 
+### monoids must formally obey several laws. For all values x , y , and z , in A 
+* combine must be associative and
+* empty must be an identity element:
+
+---
+### definition of semigroup: just combine part of monoid
 ```scala
-val fooInt = FooInt(5)
-// fooInt: com.vpon.cat.Foo.FooInt = FooInt(5)
-
-val fooString = FooString("Hello World")
-// fooString: com.vpon.cat.Foo.FooString = FooString(Hello World)
-
-val foos = List(fooInt, fooString)
-// foos: List[com.vpon.cat.Foo] = List(FooInt(5), FooString(Hello World))
+trait Semigroup[A] {
+  def combine(x: A, y: A): A
+}
+trait Monoid[A] extends Semigroup[A] {
+  def empty: A
+}
 ```
+---
+### monoid execise1
+```scala
+import cats.Monoid
+import cats.instances.all._
+import cats.syntax.semigroup._
+import cats.syntax.option._
 
+```
+```scala
+val c1 = Set(1, 2) |+| Set(2, 3)
+// c1: scala.collection.immutable.Set[Int] = Set(1, 2, 3)
+
+val c2 = Set("A", "B") |+| Set("B", "C")
+// c2: scala.collection.immutable.Set[String] = Set(A, B, C)
+
+val c3 = Set(1.some, 2.some) |+| Set(2.some, 3.some)
+// c3: scala.collection.immutable.Set[Option[Int]] = Set(Some(1), Some(2), Some(3))
+```
+### monoid execise2 on next page
+---
+```scala
+import cats.Monoid
+import cats.instances.all._
+import cats.syntax.semigroup._
+import cats.syntax.option._
+
+case class Order(totalCost: Double, quantity: Double)
+implicit val orderMono = new Monoid[Order] {
+  def combine(x: Order, y: Order): Order = x.copy(totalCost = x.totalCost |+| y.totalCost, quantity = x.quantity |+| y.quantity)
+  def empty: Order = Order(0, 0)
+}
+def addInt(items: List[Int]): Int = items.foldLeft(Monoid[Int].empty)((a, b) => a |+| b)
+
+def add[A](items: List[A])(implicit monoid: Monoid[A]): A = items.foldLeft(monoid.empty)((a, b) => a |+| b)
+```
+```scala
+val list1 = List(Some(1), Some(2), None) 
+// list1: List[Option[Int]] = List(Some(1), Some(2), None)
+
+val list2 = (0 to 5).map(i => Order(i, i)).toList
+// <console>:58: warning: implicit numeric widening
+//        val list2 = (0 to 5).map(i => Order(i, i)).toList
+//                                            ^
+// <console>:58: warning: implicit numeric widening
+//        val list2 = (0 to 5).map(i => Order(i, i)).toList
+//                                               ^
+// list2: List[Order] = List(Order(0.0,0.0), Order(1.0,1.0), Order(2.0,2.0), Order(3.0,3.0), Order(4.0,4.0), Order(5.0,5.0))
+
+val result1 = add(list1)
+// result1: Option[Int] = Some(3)
+
+val result2 = add(list2)
+// result2: Order = Order(15.0,15.0)
+```
 ---
 class: center, middle
 
 # Thanks!
-Code and slides at `chenghsienwen/scalaCatExecise` on GitHub
+Code and slides at `chenghsienwen/scalacatexecise` on GitHub
 
 ## Questions?
 

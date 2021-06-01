@@ -29,12 +29,13 @@
 class: center, middle
 
 # scala cat execise
-Chenghsien Wen • `@JulienTruffaut`
+Chenghsien Wen • `@chenghsienwen`
 
 
 ???
 - notes here
 - see https://remarkjs.com/#1
+- see https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet
 
 ---
 # execise from scala with cats 2 book
@@ -114,40 +115,124 @@ println("aaa".show)
 println(Cat("meme", 5, "yellow").show)
 ```
 ---
+# show type class in cats
+
 ```tut:silent
+//ref:https://typelevel.org/cats/typeclasses/show.html
+import cats.Show
+import cats.syntax.show._
+
+
 case class Person(name: String, age: Int)
+implicit val showPerson: Show[Person] = Show.show(person => s"name: ${person.name}, age: ${person.age}")
 ```
-
 ```tut:book
-val john = Person("John", 23)
-
-john.age
-
-john.copy(age = 30)
+println(Person("John", 31).show)
 ```
-
-???
-- see https://github.com/tpolecat/tut
+---
+#Eq
+* issue on Eq
+```tut:book
+List(1, 2, 3).map(Option(_)).filter(item => item == 1)
+```
+* use cats eq for **type safe** equality
+* === compares two objects for equality;
+* =!= compares two objects for inequality.
+```tut:silent
+import cats.Eq
+import cats.instances.all._
+import cats.syntax.eq._
+```
+```tut:fail
+List(1, 2, 3).map(Option(_)).filter(item => item === 1)
+```
+---
+#cats import structure
+* cats.x for core/"kernel" types;
+* cats.data for data types such as **Validated, monad transformers**, etc.;
+* cats.syntax.x._ for extension method support, so you can call e.g. sth.asRight, sth.pure, and so on;
+* cats.instances.x._ for actual implicit scope import of implementation of the various typeclasses for specific types, so
+that when you call e.g. sth.pure you don’t get an "implicit not found" error.
 
 ---
-# Scala examples from core module
-
+#main type class in cats
+* Monoid and Semigroup 
+* Functor 
+* Monad and Moand transforer
+* Semigroupal and Applicative 
+* Traverse and Foldable
+---
+###monad type class hierachy
+![:scale 75%](resources/monad-type-class-hierachy.jpeg)
+---
+###definition of monoid: a monoid for a type A is:
+* an operation combine with type (A, A) => A
+* an element empty of type A
 ```tut:silent
-import com.vpon.cat.Foo.{FooInt, FooString}
+trait Monoid[A] {
+  def combine(x: A, y: A): A
+  def empty: A
+}
 ```
 
+### monoids must formally obey several laws. For all values x , y , and z , in A 
+* combine must be associative and
+* empty must be an identity element:
+
+---
+### definition of semigroup: just combine part of monoid
+```tut:silent
+trait Semigroup[A] {
+  def combine(x: A, y: A): A
+}
+trait Monoid[A] extends Semigroup[A] {
+  def empty: A
+}
+```
+---
+### monoid execise1
+```tut:silent
+import cats.Monoid
+import cats.instances.all._
+import cats.syntax.semigroup._
+import cats.syntax.option._
+
+```
 ```tut:book
-val fooInt = FooInt(5)
-val fooString = FooString("Hello World")
+val c1 = Set(1, 2) |+| Set(2, 3)
 
-val foos = List(fooInt, fooString)
+val c2 = Set("A", "B") |+| Set("B", "C")
+
+val c3 = Set(1.some, 2.some) |+| Set(2.some, 3.some)
 ```
+### monoid execise2 on next page
+---
+```tut:silent
+import cats.Monoid
+import cats.instances.all._
+import cats.syntax.semigroup._
+import cats.syntax.option._
 
+case class Order(totalCost: Double, quantity: Double)
+implicit val orderMono = new Monoid[Order] {
+  def combine(x: Order, y: Order): Order = x.copy(totalCost = x.totalCost |+| y.totalCost, quantity = x.quantity |+| y.quantity)
+  def empty: Order = Order(0, 0)
+}
+def addInt(items: List[Int]): Int = items.foldLeft(Monoid[Int].empty)((a, b) => a |+| b)
+
+def add[A](items: List[A])(implicit monoid: Monoid[A]): A = items.foldLeft(monoid.empty)((a, b) => a |+| b)
+```
+```tut:book
+val list1 = List(Some(1), Some(2), None) 
+val list2 = (0 to 5).map(i => Order(i, i)).toList
+val result1 = add(list1)
+val result2 = add(list2)
+```
 ---
 class: center, middle
 
 # Thanks!
-Code and slides at `chenghsienwen/scalaCatExecise` on GitHub
+Code and slides at `chenghsienwen/scalacatexecise` on GitHub
 
 ## Questions?
 
