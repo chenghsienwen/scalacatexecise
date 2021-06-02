@@ -153,7 +153,7 @@ List(1, 2, 3).map(Option(_)).filter(item => item === 1)
 * cats.syntax.x._ for extension method support, so you can call e.g. sth.asRight, sth.pure, and so on;
 * cats.instances.x._ for actual implicit scope import of implementation of the various typeclasses for specific types, so
 that when you call e.g. sth.pure you don’t get an "implicit not found" error.
-
+* you can use *import cats.implicits._* to include all instances and syntax
 ---
 #main type class in cats
 * Monoid and Semigroup 
@@ -371,6 +371,41 @@ Symbol("a") |+| Symbol("few") |+| Symbol("words")
 // res4: Symbol = 'afewwords
 ```
 ---
+* functor execise1
+
+```tut:silent
+import cats.Functor
+import cats.instances.all._
+import cats.syntax.functor._
+
+// trait Functor[F[_]] {
+// def map[A, B](fa: F[A])(f: A => B): F[B]
+// }
+
+sealed trait Tree[+A]
+final case class Branch[A](left: Tree[A], right: Tree[A]) extends Tree[A]
+final case class Leaf[A](value: A) extends Tree[A]
+
+implicit val treeFunctor: Functor[Tree] = new Functor[Tree] {
+  def map[A, B](fa: Tree[A])(f: A => B): Tree[B] = {
+    fa match {
+      case Branch(left, right) => Branch(map(left)(f), map(right)(f))
+      case Leaf(value) => Leaf(f(value))
+    }
+  }
+}
+
+object Tree {
+  def branch[A](left: Tree[A], right: Tree[A]): Tree[A] =
+    Branch(left, right)
+  def leaf[A](value: A): Tree[A] =
+    Leaf(value)
+}
+```
+```tut:book
+Tree.branch(Tree.leaf(10), Tree.leaf(20)).map(_ * 2)
+```
+---
 * partial unification need to add **YpartialUnification**(before scala2.13) in scalaOption
 
 ```scala
@@ -382,6 +417,13 @@ val func2 = (y: Double) => y * 2
 
 val func3 = func1.map(func2)
 // func3: Int => Double = scala.Function1$$Lambda$7919/0x00000008424d3040@76a18834
+```
+* otherwise we’ll get a compiler error:
+
+```scala
+func1.map(func2)
+// <console>: error: value map is not a member of Int => Double
+//func1.map(func2)
 ```
 ---
 ###The partial unification in the Scala compiler works by fixing type parameters
@@ -396,11 +438,11 @@ val functor = Functor[F]
 
 ```scala
 trait Function1[-A, +B] {
-def apply(arg: A): B
+  def apply(arg: A): B
 }
 
 trait Functor[F[_]] {
-def map[A, B](fa: F[A])(func: A => B): F[B]
+  def map[A, B](fa: F[A])(func: A => B): F[B]
 }
 ```
 ---
@@ -769,6 +811,16 @@ factorial(50000).value
 ```
 * cost of eavl: It avoids consuming stack by creating a chain of function objects on the heap. There are still limits on
 how deeply we can nest computations, but they are bounded by the **size of the heap rather than the stack**.
+---
+###Reference
+* [scala with cats2](https://www.scalawithcats.com/ "www.scalawithcats.com")
+* [cats FAQ](https://typelevel.org/cats/faq.html)
+* [Useful Ammonite snippets](https://gist.github.com/MateuszKubuszok/a80503b28f289f08f2f6c6c70871e8d3#partial-unification)
+* [9-tips-about-using-cats-in-scala-you-might-want-to-know](https://blog.softwaremill.com/9-tips-about-using-cats-in-scala-you-might-want-to-know-e1bafd365f88)
+* [monad-transformers-for-the-working-programmer](https://blog.buildo.io/monad-transformers-for-the-working-programmer-aa7e981190e7)
+* [flinters engineers blog](https://labs.septeni.co.jp/entry/functional-brothers)
+* [Monad Transformers for the working programmer | by Gabriele Petronella](https://speakerdeck.com/danielasfregola/scalamatsuri-2018-a-pragmatic-introduction-to-category-theory)
+* [DanielaSfregola github](https://github.com/DanielaSfregola)
 
 ---
 class: center, middle

@@ -170,7 +170,7 @@ scala> List(1, 2, 3).map(Option(_)).filter(item => item === 1)
 * cats.syntax.x._ for extension method support, so you can call e.g. sth.asRight, sth.pure, and so on;
 * cats.instances.x._ for actual implicit scope import of implementation of the various typeclasses for specific types, so
 that when you call e.g. sth.pure you don’t get an "implicit not found" error.
-
+* you can use *import cats.implicits._* to include all instances and syntax
 ---
 #main type class in cats
 * Monoid and Semigroup 
@@ -360,10 +360,10 @@ scala> import com.vpon.cat.CodecInstances._
 import com.vpon.cat.CodecInstances._
 
 scala> implicit val intCodec: Codec[Int] = stringCodec.imap(_.toInt, _.toString)
-intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@474c0835
+intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@78726d8b
 
 scala> implicit val booleanCodec: Codec[Boolean] = stringCodec.imap(_.toBoolean, _.toString)
-booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@3bedaaca
+booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@49644e4f
 ```
 ---
 * Contravariant and Invariant in Cats
@@ -411,6 +411,42 @@ Symbol("a") |+| Symbol("few") |+| Symbol("words")
 // res4: Symbol = 'afewwords
 ```
 ---
+* functor execise1
+
+```scala
+import cats.Functor
+import cats.instances.all._
+import cats.syntax.functor._
+
+// trait Functor[F[_]] {
+// def map[A, B](fa: F[A])(f: A => B): F[B]
+// }
+
+sealed trait Tree[+A]
+final case class Branch[A](left: Tree[A], right: Tree[A]) extends Tree[A]
+final case class Leaf[A](value: A) extends Tree[A]
+
+implicit val treeFunctor: Functor[Tree] = new Functor[Tree] {
+  def map[A, B](fa: Tree[A])(f: A => B): Tree[B] = {
+    fa match {
+      case Branch(left, right) => Branch(map(left)(f), map(right)(f))
+      case Leaf(value) => Leaf(f(value))
+    }
+  }
+}
+
+object Tree {
+  def branch[A](left: Tree[A], right: Tree[A]): Tree[A] =
+    Branch(left, right)
+  def leaf[A](value: A): Tree[A] =
+    Leaf(value)
+}
+```
+```scala
+Tree.branch(Tree.leaf(10), Tree.leaf(20)).map(_ * 2)
+// res5: Tree[Int] = Branch(Leaf(20),Leaf(40))
+```
+---
 * partial unification need to add **YpartialUnification**(before scala2.13) in scalaOption
 
 ```scala
@@ -422,6 +458,13 @@ val func2 = (y: Double) => y * 2
 
 val func3 = func1.map(func2)
 // func3: Int => Double = scala.Function1$$Lambda$7919/0x00000008424d3040@76a18834
+```
+* otherwise we’ll get a compiler error:
+
+```scala
+func1.map(func2)
+// <console>: error: value map is not a member of Int => Double
+//func1.map(func2)
 ```
 ---
 ###The partial unification in the Scala compiler works by fixing type parameters
@@ -436,11 +479,11 @@ val functor = Functor[F]
 
 ```scala
 trait Function1[-A, +B] {
-def apply(arg: A): B
+  def apply(arg: A): B
 }
 
 trait Functor[F[_]] {
-def map[A, B](fa: F[A])(func: A => B): F[B]
+  def map[A, B](fa: F[A])(func: A => B): F[B]
 }
 ```
 ---
@@ -490,29 +533,29 @@ def sumSquare[F[_]: Monad](a: F[Int], b: F[Int]): F[Int] =
 ```
 ```scala
 sumSquare(Option(3), Option(4)) 
-// res1: Option[Int] = Some(25)
+// res6: Option[Int] = Some(25)
 
 sumSquare(List(1, 2, 3),List(4, 5)) 
-// res2: List[Int] = List(17, 26, 20, 29, 25, 34)
+// res7: List[Int] = List(17, 26, 20, 29, 25, 34)
 
 sumSquare(3:Id[Int], 4:Id[Int]) 
-// res3: cats.Id[Int] = 25
+// res8: cats.Id[Int] = 25
 ```
 ```scala
 scala> sumSquare(3, 4) 
-<console>:36: error: no type parameters for method sumSquare: (a: F[Int], b: F[Int])(implicit evidence$1: cats.Monad[F])F[Int] exist so that it can be applied to arguments (Int, Int)
+<console>:44: error: no type parameters for method sumSquare: (a: F[Int], b: F[Int])(implicit evidence$1: cats.Monad[F])F[Int] exist so that it can be applied to arguments (Int, Int)
  --- because ---
 argument expression's type is not compatible with formal parameter type;
  found   : Int
  required: ?F[Int]
        sumSquare(3, 4)
        ^
-<console>:36: error: type mismatch;
+<console>:44: error: type mismatch;
  found   : Int(3)
  required: F[Int]
        sumSquare(3, 4)
                  ^
-<console>:36: error: type mismatch;
+<console>:44: error: type mismatch;
  found   : Int(4)
  required: F[Int]
        sumSquare(3, 4)
@@ -566,12 +609,12 @@ scala> def countPositive(nums: List[Int]) =
      |       Left("Negative. Stopping!")
      |     }
      |   }
-<console>:37: error: type mismatch;
+<console>:45: error: type mismatch;
  found   : scala.util.Either[Nothing,Int]
  required: scala.util.Right[Nothing,Int]
              accumulator.map(_ + 1)
                             ^
-<console>:39: error: type mismatch;
+<console>:47: error: type mismatch;
  found   : scala.util.Left[String,Nothing]
  required: scala.util.Right[Nothing,Int]
              Left("Negative. Stopping!")
@@ -598,10 +641,10 @@ def countPositive(nums: List[Int]) =
 ```
 ```scala
 countPositive(List(1, 2, 3))
-// res5: Either[String,Int] = Right(3)
+// res10: Either[String,Int] = Right(3)
 
 countPositive(List(1, -2, 3))
-// res6: Either[String,Int] = Left(Negative. Stopping!)
+// res11: Either[String,Int] = Left(Negative. Stopping!)
 ```
 ---
 ###transforming either:
@@ -753,7 +796,7 @@ def validateAdult[F[_]](age: Int)(implicit me: MonadError[F, Throwable]): F[Int]
 ```
 ```scala
 validateAdult[Try](18)
-// res11: scala.util.Try[Int] = Success(18)
+// res16: scala.util.Try[Int] = Success(18)
 
 type ExceptionOr[A] = Either[Throwable, A]
 // defined type alias ExceptionOr
@@ -761,7 +804,7 @@ type ExceptionOr[A] = Either[Throwable, A]
 ```scala
 scala> validateAdult[ExceptionOr](-1)
 java.lang.IllegalArgumentException: Age must be greater than or equal to 18
-  at .validateAdult(<console>:55)
+  at .validateAdult(<console>:63)
   ... 42 elided
 ```
 ---
@@ -776,22 +819,22 @@ import cats.Eval
 // import cats.Eval
 
 val now = Eval.now(math.random + 1000)
-// now: cats.Eval[Double] = Now(1000.740558666651)
+// now: cats.Eval[Double] = Now(1000.2261145941753)
 
 val always = Eval.always(math.random + 3000)
-// always: cats.Eval[Double] = cats.Always@49c34e2e
+// always: cats.Eval[Double] = cats.Always@39fe28fd
 
 val later = Eval.later(math.random + 2000)
-// later: cats.Eval[Double] = cats.Later@2744b1c3
+// later: cats.Eval[Double] = cats.Later@3de56a3a
 
 now.value
-// res13: Double = 1000.740558666651
+// res18: Double = 1000.2261145941753
 
 always.value
-// res14: Double = 3000.4349584882384
+// res19: Double = 3000.1734504043
 
 later.value
-// res15: Double = 2000.9351353023235
+// res20: Double = 2000.763402476207
 ```
 ---
 * mapping functions are always called lazily on demand ( **def semantics**):
@@ -808,17 +851,17 @@ val ans = for {
   a + b
 }
 // Calculating A
-// ans: cats.Eval[Int] = cats.Eval$$anon$4@6e4ff9f3
+// ans: cats.Eval[Int] = cats.Eval$$anon$4@27d8d1e0
 
 ans.value // first access
 // Calculating B
 // Adding A and B
-// res16: Int = 42
+// res21: Int = 42
 
 ans.value // second access
 // Calculating B
 // Adding A and B
-// res17: Int = 42
+// res22: Int = 42
 ```
 ---
 * memorized method
@@ -831,17 +874,17 @@ val saying = Eval.always{ println("Step 1"); "The cat"
   }.map{ str => println("Step 2"); s"$str sat on" 
   }.memoize.map{ str => println("Step 3"); s"$str the mat" 
 }
-// saying: cats.Eval[String] = cats.Eval$$anon$4@129e6cf8
+// saying: cats.Eval[String] = cats.Eval$$anon$4@47fada62
 
 saying.value // first access
 // Step 1
 // Step 2
 // Step 3
-// res18: String = The cat sat on the mat
+// res23: String = The cat sat on the mat
 
 saying.value // second access
 // Step 3
-// res19: String = The cat sat on the mat
+// res24: String = The cat sat on the mat
 ```
 
 ---
@@ -884,10 +927,20 @@ def factorial(n: BigInt): Eval[BigInt] =
 // factorial: (n: BigInt)cats.Eval[BigInt]
 
 factorial(50000).value
-// res20: BigInt = 33473205095971448369154760940714864779127732238104548077301003219901680221443656416973812310719169308798480438190208299893616384743066693742630572845363784038325756282123359987268244078235972356040853854441373383753568565536371168327405166076155165921406156075461294201790567479665498629242220022541553510718159801615476451810616674970217996537474972541139338191638823500630307644256874857271394651081909874909643486268589229807870031031008962861154553979911612940652327396971497211031261142860733793509687837355811830609551728906603833592532851635961730885279811957399495299450306354442478492641028990069559634883529900557676550929175475920788044807622562415165130459046318068517406766360012329556454065724225175473428183121029195715593787423641117194513...
+// res25: BigInt = 33473205095971448369154760940714864779127732238104548077301003219901680221443656416973812310719169308798480438190208299893616384743066693742630572845363784038325756282123359987268244078235972356040853854441373383753568565536371168327405166076155165921406156075461294201790567479665498629242220022541553510718159801615476451810616674970217996537474972541139338191638823500630307644256874857271394651081909874909643486268589229807870031031008962861154553979911612940652327396971497211031261142860733793509687837355811830609551728906603833592532851635961730885279811957399495299450306354442478492641028990069559634883529900557676550929175475920788044807622562415165130459046318068517406766360012329556454065724225175473428183121029195715593787423641117194513...
 ```
 * cost of eavl: It avoids consuming stack by creating a chain of function objects on the heap. There are still limits on
 how deeply we can nest computations, but they are bounded by the **size of the heap rather than the stack**.
+---
+###Reference
+* [scala with cats2](https://www.scalawithcats.com/ "www.scalawithcats.com")
+* [cats FAQ](https://typelevel.org/cats/faq.html)
+* [Useful Ammonite snippets](https://gist.github.com/MateuszKubuszok/a80503b28f289f08f2f6c6c70871e8d3#partial-unification)
+* [9-tips-about-using-cats-in-scala-you-might-want-to-know](https://blog.softwaremill.com/9-tips-about-using-cats-in-scala-you-might-want-to-know-e1bafd365f88)
+* [monad-transformers-for-the-working-programmer](https://blog.buildo.io/monad-transformers-for-the-working-programmer-aa7e981190e7)
+* [flinters engineers blog](https://labs.septeni.co.jp/entry/functional-brothers)
+* [Monad Transformers for the working programmer | by Gabriele Petronella](https://speakerdeck.com/danielasfregola/scalamatsuri-2018-a-pragmatic-introduction-to-category-theory)
+* [DanielaSfregola github](https://github.com/DanielaSfregola)
 
 ---
 class: center, middle
