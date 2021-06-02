@@ -245,12 +245,12 @@ trait Functor[F[_]] {
 ---
 #### Functor Laws
 * Identity: calling map with the identity function is the same as doing nothing:
-```
+```scala
 fa.map(a => a) == fa
 ```
 * Composition: mapping with two functions f and g is the same as
 mapping with f and then mapping with g :
-```
+```scala
 fa.map(g(f(_))) == fa.map(f).map(g)
 ```
 * The trick is not to confuse type constructors with generic types. 
@@ -259,7 +259,7 @@ fa.map(g(f(_))) == fa.map(f).map(g)
 List[A] is a **type**:
 
 * There’s a close analogy here with functions and values. Functions are value constructors
-```
+```scala
 math.abs // function, takes one parameter
 math.abs(x) // value, produced by applying a value parameter
 ```
@@ -424,13 +424,13 @@ trait Monad[F[_]] {
 ### Monad Laws
 * Left and right identity
 
-```
+```scala
 pure(a).flatMap(func) == func(a)
 m.flatMap(pure) == m
 ```
 * Associativity
 
-```
+```scala
 m.flatMap(f).flatMap(g) == m.flatMap(x => f(x).flatMap(g))
 ```
 ---
@@ -459,7 +459,7 @@ sumSquare(3, 4)
 ---
 * Either is monad after scala 2.12(right biased)
 
-```
+```scala
 for {
   a <- either1
   b <- either2
@@ -469,7 +469,7 @@ for {
 
 * in scala 2.11,need to assign .right
 
-```
+```scala
 for {
   a <- either1.right
   b <- either2.right
@@ -575,6 +575,7 @@ import cats.syntax.either._
 ```
 ---
 * error handling by Either
+
 ```tut:silent
 object wrapper {
   sealed trait LoginError extends Product with Serializable
@@ -676,6 +677,99 @@ type ExceptionOr[A] = Either[Throwable, A]
 ```tut:fail
 validateAdult[ExceptionOr](-1)
 ```
+---
+###Eval monad
+#### eval monad with 3 types
+* now: call‐by‐value which is eager and memoized;
+* always: call‐by‐name which is lazy and not memoized; and
+* later: call‐by‐need which is lazy and memoized.
+
+```tut:book
+import cats.Eval
+val now = Eval.now(math.random + 1000)
+
+val always = Eval.always(math.random + 3000)
+
+val later = Eval.later(math.random + 2000)
+
+now.value
+
+always.value
+
+later.value
+```
+---
+* mapping functions are always called lazily on demand ( **def semantics**):
+
+```tut:book
+import cats.Eval
+val ans = for {
+  a <- Eval.now{ println("Calculating A"); 40 }
+  b <- Eval.always{ println("Calculating B"); 2 }
+} yield {
+  println("Adding A and B")
+  a + b
+}
+
+ans.value // first access
+
+ans.value // second access
+```
+---
+* memorized method
+
+```tut:book
+import cats.Eval
+val saying = Eval.always{ println("Step 1"); "The cat" 
+  }.map{ str => println("Step 2"); s"$str sat on" 
+  }.memoize.map{ str => println("Step 3"); s"$str the mat" 
+}
+
+saying.value // first access
+
+saying.value // second access
+```
+
+---
+###stack safety of evals map and flatMap
+* issue example: this would cause stack overflow
+
+```scala
+def factorial(n: BigInt): BigInt =
+  if(n == 1) n else n * factorial(n - 1)
+factorial(50000)
+// java.lang.StackOverflowError
+```
+* use eavl to refactor….still stack overflow
+
+```scala
+def factorial(n: BigInt): Eval[BigInt] =
+  if(n == 1) {
+    Eval.now(n)
+  } else {
+    factorial(n - 1).map(_ * n)
+  }
+factorial(50000).value
+// java.lang.StackOverflowError
+```
+---
+* stack overflow reason
+* still making all the recursive calls to factorial before we start working with Eval's map method.
+* solution: use **eavl.defer** for the rescue!!
+
+```tut:book
+import cats.Eval
+def factorial(n: BigInt): Eval[BigInt] =
+  if(n == 1) {
+    Eval.now(n)
+  } else {
+    Eval.defer(factorial(n - 1).map(_ * n))
+  }
+factorial(50000).value
+```
+* cost of eavl: It avoids consuming stack by creating a chain of function objects on the heap. There are still limits on
+how deeply we can nest computations, but they are bounded by the **size of the heap rather than the stack**.
+
 ---
 class: center, middle
 

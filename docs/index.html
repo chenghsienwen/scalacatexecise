@@ -278,12 +278,12 @@ trait Functor[F[_]] {
 ---
 #### Functor Laws
 * Identity: calling map with the identity function is the same as doing nothing:
-```
+```scala
 fa.map(a => a) == fa
 ```
 * Composition: mapping with two functions f and g is the same as
 mapping with f and then mapping with g :
-```
+```scala
 fa.map(g(f(_))) == fa.map(f).map(g)
 ```
 * The trick is not to confuse type constructors with generic types. 
@@ -292,7 +292,7 @@ fa.map(g(f(_))) == fa.map(f).map(g)
 List[A] is a **type**:
 
 * There’s a close analogy here with functions and values. Functions are value constructors
-```
+```scala
 math.abs // function, takes one parameter
 math.abs(x) // value, produced by applying a value parameter
 ```
@@ -360,10 +360,10 @@ scala> import com.vpon.cat.CodecInstances._
 import com.vpon.cat.CodecInstances._
 
 scala> implicit val intCodec: Codec[Int] = stringCodec.imap(_.toInt, _.toString)
-intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@48dcf63b
+intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@474c0835
 
 scala> implicit val booleanCodec: Codec[Boolean] = stringCodec.imap(_.toBoolean, _.toString)
-booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@7ee89e90
+booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@3bedaaca
 ```
 ---
 * Contravariant and Invariant in Cats
@@ -464,13 +464,13 @@ trait Monad[F[_]] {
 ### Monad Laws
 * Left and right identity
 
-```
+```scala
 pure(a).flatMap(func) == func(a)
 m.flatMap(pure) == m
 ```
 * Associativity
 
-```
+```scala
 m.flatMap(f).flatMap(g) == m.flatMap(x => f(x).flatMap(g))
 ```
 ---
@@ -521,7 +521,7 @@ argument expression's type is not compatible with formal parameter type;
 ---
 * Either is monad after scala 2.12(right biased)
 
-```
+```scala
 for {
   a <- either1
   b <- either2
@@ -531,7 +531,7 @@ for {
 
 * in scala 2.11,need to assign .right
 
-```
+```scala
 for {
   a <- either1.right
   b <- either2.right
@@ -650,6 +650,7 @@ import cats.syntax.either._
 ```
 ---
 * error handling by Either
+
 ```scala
 object wrapper {
   sealed trait LoginError extends Product with Serializable
@@ -763,6 +764,131 @@ java.lang.IllegalArgumentException: Age must be greater than or equal to 18
   at .validateAdult(<console>:55)
   ... 42 elided
 ```
+---
+###Eval monad
+#### eval monad with 3 types
+* now: call‐by‐value which is eager and memoized;
+* always: call‐by‐name which is lazy and not memoized; and
+* later: call‐by‐need which is lazy and memoized.
+
+```scala
+import cats.Eval
+// import cats.Eval
+
+val now = Eval.now(math.random + 1000)
+// now: cats.Eval[Double] = Now(1000.740558666651)
+
+val always = Eval.always(math.random + 3000)
+// always: cats.Eval[Double] = cats.Always@49c34e2e
+
+val later = Eval.later(math.random + 2000)
+// later: cats.Eval[Double] = cats.Later@2744b1c3
+
+now.value
+// res13: Double = 1000.740558666651
+
+always.value
+// res14: Double = 3000.4349584882384
+
+later.value
+// res15: Double = 2000.9351353023235
+```
+---
+* mapping functions are always called lazily on demand ( **def semantics**):
+
+```scala
+import cats.Eval
+// import cats.Eval
+
+val ans = for {
+  a <- Eval.now{ println("Calculating A"); 40 }
+  b <- Eval.always{ println("Calculating B"); 2 }
+} yield {
+  println("Adding A and B")
+  a + b
+}
+// Calculating A
+// ans: cats.Eval[Int] = cats.Eval$$anon$4@6e4ff9f3
+
+ans.value // first access
+// Calculating B
+// Adding A and B
+// res16: Int = 42
+
+ans.value // second access
+// Calculating B
+// Adding A and B
+// res17: Int = 42
+```
+---
+* memorized method
+
+```scala
+import cats.Eval
+// import cats.Eval
+
+val saying = Eval.always{ println("Step 1"); "The cat" 
+  }.map{ str => println("Step 2"); s"$str sat on" 
+  }.memoize.map{ str => println("Step 3"); s"$str the mat" 
+}
+// saying: cats.Eval[String] = cats.Eval$$anon$4@129e6cf8
+
+saying.value // first access
+// Step 1
+// Step 2
+// Step 3
+// res18: String = The cat sat on the mat
+
+saying.value // second access
+// Step 3
+// res19: String = The cat sat on the mat
+```
+
+---
+###stack safety of evals map and flatMap
+* issue example: this would cause stack overflow
+
+```scala
+def factorial(n: BigInt): BigInt =
+  if(n == 1) n else n * factorial(n - 1)
+factorial(50000)
+// java.lang.StackOverflowError
+```
+* use eavl to refactor….still stack overflow
+
+```scala
+def factorial(n: BigInt): Eval[BigInt] =
+  if(n == 1) {
+    Eval.now(n)
+  } else {
+    factorial(n - 1).map(_ * n)
+  }
+factorial(50000).value
+// java.lang.StackOverflowError
+```
+---
+* stack overflow reason
+* still making all the recursive calls to factorial before we start working with Eval's map method.
+* solution: use **eavl.defer** for the rescue!!
+
+```scala
+import cats.Eval
+// import cats.Eval
+
+def factorial(n: BigInt): Eval[BigInt] =
+  if(n == 1) {
+    Eval.now(n)
+  } else {
+    Eval.defer(factorial(n - 1).map(_ * n))
+  }
+// factorial: (n: BigInt)cats.Eval[BigInt]
+
+factorial(50000).value
+// res20: BigInt = 33473205095971448369154760940714864779127732238104548077301003219901680221443656416973812310719169308798480438190208299893616384743066693742630572845363784038325756282123359987268244078235972356040853854441373383753568565536371168327405166076155165921406156075461294201790567479665498629242220022541553510718159801615476451810616674970217996537474972541139338191638823500630307644256874857271394651081909874909643486268589229807870031031008962861154553979911612940652327396971497211031261142860733793509687837355811830609551728906603833592532851635961730885279811957399495299450306354442478492641028990069559634883529900557676550929175475920788044807622562415165130459046318068517406766360012329556454065724225175473428183121029195715593787423641117194513...
+```
+* cost of eavl: It avoids consuming stack by creating a chain of function objects on the heap. There are still limits on
+how deeply we can nest computations, but they are bounded by the **size of the heap rather than the stack**.
+
 ---
 class: center, middle
 
