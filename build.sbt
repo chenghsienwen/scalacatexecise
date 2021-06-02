@@ -10,7 +10,8 @@ lazy val baseSettings: Seq[Setting[_]] = Seq(
     "-Yno-adapted-args",
     "-Ywarn-numeric-widen",
     "-Ywarn-value-discard",
-    "-Xfuture"
+    "-Xfuture",
+    "-Ypartial-unification"
   ),
   resolvers += Resolver.sonatypeRepo("releases"),
   libraryDependencies += "org.typelevel" %% "cats-core" % "2.3.0"

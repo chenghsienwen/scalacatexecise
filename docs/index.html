@@ -139,7 +139,7 @@ println(Person("John", 31).show)
 ```
 ---
 #Eq
-* issue on Eq
+* issue on **==**
 ```scala
 List(1, 2, 3).map(Option(_)).filter(item => item == 1)
 // <console>:29: warning: Option[Int] and Int are unrelated: they will most likely never compare equal
@@ -260,6 +260,508 @@ val result1 = add(list1)
 
 val result2 = add(list2)
 // result2: Order = Order(15.0,15.0)
+```
+---
+###functor: a functor is anything with a map method
+![:scale 90%](resources/map-type-chart.jpeg)
+---
+* We should think of map not as an iteration pattern, but as a way of sequencing computations on values ignoring some
+complication dictated by the relevant data type
+
+```scala
+//package cats
+trait Functor[F[_]] {
+  def map[A, B](fa: F[A])(f: A => B): F[B]
+}
+```
+* F[_]: **type constructors and higher kinded types**
+---
+#### Functor Laws
+* Identity: calling map with the identity function is the same as doing nothing:
+```
+fa.map(a => a) == fa
+```
+* Composition: mapping with two functions f and g is the same as
+mapping with f and then mapping with g :
+```
+fa.map(g(f(_))) == fa.map(f).map(g)
+```
+* The trick is not to confuse type constructors with generic types. 
+
+* List is a **typeconstructor**, 
+List[A] is a **type**:
+
+* There’s a close analogy here with functions and values. Functions are value constructors
+```
+math.abs // function, takes one parameter
+math.abs(x) // value, produced by applying a value parameter
+```
+---
+### lift:
+* Functor provides a method called lift , which converts a function of 
+**type A => B** to one that operates over a functor and has type **F[A] => F[B]** :
+
+```scala
+import cats.Functor
+import cats.instances.all._
+import cats.syntax.functor._
+val func = (x: Int) => x + 1
+// func: Int => Int = <function1>
+val liftedFunc = Functor[Option].lift(func)
+// liftedFunc: Option[Int] => Option[Int] = cats.Functor$$Lambda$7972/0x000000084250f840@195657fa58
+
+liftedFunc(Option(1))
+// res1: Option[Int] = Some(2)
+```
+---
+### Functors represent sequencing behaviours. 
+####We covered three types of functor in this chapter:
+* Regular covariant Functors , with their map method, represent the abil‐
+ity to apply functions to a value in some context. Successive calls to
+map apply these functions in sequence, each accepting the result of its
+predecessor as a parameter.
+* Contravariant functors, with their contramap method, represent the
+ability to “prepend” functions to a function‐like context. Successive
+calls to contramap sequence these functions in the opposite order to
+map .
+* Invariant functors, with their imap method, represent bidirectional
+transformations.
+---
+* contramap
+![:scale 90%](resources/contramap-type-chart.jpeg)
+* imap: equivalent to a combination of map and contramap
+![:scale 90%](resources/imap-type-chart.jpeg)
+---
+* ex: Play JSON’s Format and scodec’s Codec .
+
+```scala
+trait Codec[A] {
+  def encode(value: A): String
+  def decode(value: String): A
+  def imap[B](dec: A => B, enc: B => A): Codec[B] = ???
+}
+def encode[A](value: A)(implicit c: Codec[A]): String =
+  c.encode(value)
+def decode[A](value: String)(implicit c: Codec[A]): A =
+  c.decode(value)
+
+implicit val stringCodec: Codec[String] = new Codec[String] {
+  def encode(value: String): String = value
+  def decode(value: String): String = value
+}
+```
+* to extend instances by imap
+
+```scala
+scala> import com.vpon.cat.Codec
+import com.vpon.cat.Codec
+
+scala> import com.vpon.cat.CodecInstances._
+import com.vpon.cat.CodecInstances._
+
+scala> implicit val intCodec: Codec[Int] = stringCodec.imap(_.toInt, _.toString)
+intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@48dcf63b
+
+scala> implicit val booleanCodec: Codec[Boolean] = stringCodec.imap(_.toBoolean, _.toString)
+booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@7ee89e90
+```
+---
+* Contravariant and Invariant in Cats
+
+```scala
+trait Contravariant[F[_]] {
+  def contramap[A, B](fa: F[A])(f: B => A): F[B]
+}
+trait Invariant[F[_]] {
+  def imap[A, B](fa: F[A])(f: A => B)(g: B => A): F[B]
+}
+```
+```scala
+import cats.Contravariant
+import cats.Show
+import cats.instances.string._
+
+val showString = Show[String]
+val showSymbol = Contravariant[Show].
+
+contramap(showString)((sym: Symbol) => s"'${sym.name}")
+showSymbol.show(Symbol("dave"))
+```
+* use syntax:
+
+```scala
+import cats.syntax.contravariant._ // for contramap
+showString.contramap[Symbol](sym => s"'${sym.name}").show(Symbol("dave"))
+// res2: String = "'dave"
+```
+---
+* imap on monoid to extend instance
+
+```scala
+import cats.Monoid
+import cats.instances.string._ // for Monoid
+import cats.syntax.invariant._ // for imap
+import cats.syntax.semigroup._ // for |+|
+
+implicit val symbolMonoid: Monoid[Symbol] =
+Monoid[String].imap(Symbol.apply)(_.name)
+Monoid[Symbol].empty
+// res3: Symbol = '
+Symbol("a") |+| Symbol("few") |+| Symbol("words")
+// res4: Symbol = 'afewwords
+```
+---
+* partial unification need to add **YpartialUnification**(before scala2.13) in scalaOption
+
+```scala
+import cats.Functor
+import cats.instances.function._ // for Functor
+import cats.syntax.functor._ // for map
+val func1 = (x: Int) => x.toDouble
+val func2 = (y: Double) => y * 2
+
+val func3 = func1.map(func2)
+// func3: Int => Double = scala.Function1$$Lambda$7919/0x00000008424d3040@76a18834
+```
+---
+###The partial unification in the Scala compiler works by fixing type parameters
+from left to right. In the above example, the compiler fixes the Int in Int =>
+Double and looks for a Functor for functions of type Int => ?
+
+```scala
+type F[A] = Int => A
+val functor = Functor[F]
+```
+* compiler need to transform Function1 to Functor
+
+```scala
+trait Function1[-A, +B] {
+def apply(arg: A): B
+}
+
+trait Functor[F[_]] {
+def map[A, B](fa: F[A])(func: A => B): F[B]
+}
+```
+---
+#Monad
+* a monad is anything with a constructor and a flatMap method
+![:scale 90%](resources/flatMap-type-chart.jpeg)
+
+* Monads are all about sequencing and fail fast 
+* => how about if we don't want to fail fast and run parraral?(use .par)
+---
+###Monad operation
+* pure , of type A => F[A] ;
+* flatMap , of type (F[A], A => F[B]) => F[B] .
+
+```scala
+trait Monad[F[_]] {
+  def pure[A](value: A): F[A]
+  def flatMap[A, B](value: F[A])(func: A => F[B]): F[B]
+}
+```
+### Monad Laws
+* Left and right identity
+
+```
+pure(a).flatMap(func) == func(a)
+m.flatMap(pure) == m
+```
+* Associativity
+
+```
+m.flatMap(f).flatMap(g) == m.flatMap(x => f(x).flatMap(g))
+```
+---
+* Id monad is a good way for test
+
+```scala
+import cats.Monad
+import cats.syntax.functor._ // for map
+import cats.syntax.flatMap._ // for flatMap
+import cats.instances.all._
+import cats.Id
+def sumSquare[F[_]: Monad](a: F[Int], b: F[Int]): F[Int] =
+  for {
+    x <- a 
+    y <- b 
+  } yield x*x + y*y 
+```
+```scala
+sumSquare(Option(3), Option(4)) 
+// res1: Option[Int] = Some(25)
+
+sumSquare(List(1, 2, 3),List(4, 5)) 
+// res2: List[Int] = List(17, 26, 20, 29, 25, 34)
+
+sumSquare(3:Id[Int], 4:Id[Int]) 
+// res3: cats.Id[Int] = 25
+```
+```scala
+scala> sumSquare(3, 4) 
+<console>:36: error: no type parameters for method sumSquare: (a: F[Int], b: F[Int])(implicit evidence$1: cats.Monad[F])F[Int] exist so that it can be applied to arguments (Int, Int)
+ --- because ---
+argument expression's type is not compatible with formal parameter type;
+ found   : Int
+ required: ?F[Int]
+       sumSquare(3, 4)
+       ^
+<console>:36: error: type mismatch;
+ found   : Int(3)
+ required: F[Int]
+       sumSquare(3, 4)
+                 ^
+<console>:36: error: type mismatch;
+ found   : Int(4)
+ required: F[Int]
+       sumSquare(3, 4)
+                    ^
+```
+---
+* Either is monad after scala 2.12(right biased)
+
+```
+for {
+  a <- either1
+  b <- either2
+} yield a + b
+// res1: Either[String, Int] = Right(42)
+```
+
+* in scala 2.11,need to assign .right
+
+```
+for {
+  a <- either1.right
+  b <- either2.right
+} yield a + b
+```
+---
+* smart constructor for let Right and Left type can be **Either** type
+
+```scala
+import cats.syntax.either._ // for asRight
+val a = 3.asRight[String]
+// a: Either[String, Int] = Right(3)
+val b = 4.asRight[String]
+// b: Either[String, Int] = Right(4)
+
+for {
+  x <- a
+  y <- b
+} yield x*x + y*y
+// res3: Either[String, Int] = Right(25)
+```
+* This helps avoid type inference problems
+---
+* issue example
+
+```scala
+scala> def countPositive(nums: List[Int]) =
+     |   nums.foldLeft(Right(0)) { (accumulator, num) =>
+     |     if(num > 0) {
+     |       accumulator.map(_ + 1)
+     |     } else {
+     |       Left("Negative. Stopping!")
+     |     }
+     |   }
+<console>:37: error: type mismatch;
+ found   : scala.util.Either[Nothing,Int]
+ required: scala.util.Right[Nothing,Int]
+             accumulator.map(_ + 1)
+                            ^
+<console>:39: error: type mismatch;
+ found   : scala.util.Left[String,Nothing]
+ required: scala.util.Right[Nothing,Int]
+             Left("Negative. Stopping!")
+                 ^
+```
+* this compile fail due to
+1. the compiler infers the type of the accumulator as **Right** instead of **Either** ;
+2. we didn’t specify type parameters for Right.apply so the compiler infers the left parameter as **Nothing** .
+
+---
+* how to fix: use asRight to let 0 is Either type
+
+```scala
+import cats.syntax.either._ // for asRight
+
+def countPositive(nums: List[Int]) =
+  nums.foldLeft(0.asRight[String]) { (accumulator, num) =>
+  if(num > 0) {
+    accumulator.map(_ + 1)
+  } else {
+    Left("Negative. Stopping!")
+  }
+}
+```
+```scala
+countPositive(List(1, 2, 3))
+// res5: Either[String,Int] = Right(3)
+
+countPositive(List(1, -2, 3))
+// res6: Either[String,Int] = Left(Negative. Stopping!)
+```
+---
+###transforming either:
+* getOrElse, orElse
+```scala
+import cats.syntax.either._
+"Error".asLeft[Int].getOrElse(0)
+// res11: Int = 0
+"Error".asLeft[Int].orElse(2.asRight[String])
+// res12: Either[String, Int] = Right(2)
+```
+* ensure
+```scala
+-1.asRight[String].ensure("Must be non-negative!")(_ > 0)
+// res13: Either[String, Int] = Left("Must be non-negative!")
+```
+
+* recover, recoverWith
+```scala
+"error".asLeft[Int].recover {
+  case _: String => -1
+}
+// res14: Either[String, Int] = Right(-1)
+"error".asLeft[Int].recoverWith {
+  case _: String => Right(-1)
+}
+// res15: Either[String, Int] = Right(-1)
+```
+---
+* leftMap, bimap
+```scala
+"foo".asLeft[Int].leftMap(_.reverse)
+// res16: Either[String, Int] = Left("oof")
+6.asRight[String].bimap(_.reverse, _ * 7)
+// res17: Either[String, Int] = Right(42)
+"bar".asLeft[Int].bimap(_.reverse, _ * 7)
+// res18: Either[String, Int] = Left("rab")
+```
+
+* swap
+```scala
+123.asRight[String]
+// res19: Either[String, Int] = Right(123)
+123.asRight[String].swap
+// res20: Either[Int, String] = Left(123)
+```
+---
+* error handling by Either
+```scala
+object wrapper {
+  sealed trait LoginError extends Product with Serializable
+  final case class UserNotFound(username: String) extends LoginError
+  final case class PasswordIncorrect(username: String) extends LoginError
+  case object UnexpectedError extends LoginError
+}
+import wrapper._
+case class User(username: String, password: String)
+type LoginResult = Either[LoginError, User]
+
+// Choose error-handling behaviour based on type:
+def handleError(error: LoginError): Unit =
+  error match {
+    case UserNotFound(u) =>
+      println(s"User not found: $u")
+    case PasswordIncorrect(u) =>
+      println(s"Password incorrect: $u")
+    case UnexpectedError =>
+      println(s"Unexpected error")
+  }
+```
+```scala
+val result1: LoginResult = User("dave", "passw0rd").asRight
+// result1: LoginResult = Right(User(dave,passw0rd))
+
+val result2: LoginResult = UserNotFound("dave").asLeft
+// result2: LoginResult = Left(UserNotFound(dave))
+
+result1.fold(handleError, println)
+// User(dave,passw0rd)
+
+result2.fold(handleError, println)
+// User not found: dave
+```
+---
+*  **Error recovery** is important when processing large jobs. We don’t want
+to run a job for a day and then find it failed on the last element.
+*  **Error reporting** is equally important. We need to know what went
+wrong, not just that something went wrong.
+*  In a number of cases, we want to collect all the errors, not just the first
+one we encountered. A typical example is **validating a web form**. It’s a
+far better experience to report all errors to the user when they submit
+a form than to report them one at a time.
+---
+###MonadError
+```scala
+//package cats
+trait MonadError[F[_], E] extends Monad[F] {
+  // Lift an error into the `F` context:
+  def raiseError[A](e: E): F[A]
+  // Handle an error, potentially recovering from it:
+  def handleErrorWith[A](fa: F[A])(f: E => F[A]): F[A]
+  // Handle all errors, recovering from them:
+  def handleError[A](fa: F[A])(f: E => A): F[A]
+  // Test an instance of `F`,
+  // failing if the predicate is not satisfied:
+  def ensure[A](fa: F[A])(e: E)(f: A => Boolean): F[A]
+}
+```
+---
+* handleErrorWith via *cats.syntax.applicativError*
+* ensure via *cats.syntax.monadError*
+
+```scala
+import cats.syntax.applicative._ // for pure
+import cats.syntax.applicativeError._ // for raiseError etc
+import cats.syntax.monadError._ // for ensure
+// Alias Either to a type constructor with one parameter:
+type ErrorOr[A] = Either[String, A]
+
+val success = 42.pure[ErrorOr]
+// success: ErrorOr[Int] = Right(42)
+val failure = "Badness".raiseError[ErrorOr, Int]
+// failure: ErrorOr[Int] = Left("Badness")
+failure.handleErrorWith{
+    case "Badness" => 256.pure[ErrorOr]
+    case _ => ("It's not ok").raiseError[ErrorOr, Int]
+}
+// res4: ErrorOr[Int] = Right(256)
+success.ensure("Number to low!")(_ > 1000)
+// res5: ErrorOr[Int] = Left("Number to low!")
+```
+---
+* monad execise1
+
+```scala
+import cats.MonadError
+import cats.syntax.monadError._
+import cats.syntax.applicativeError._
+import cats.instances.all._
+import scala.util.{Try, Success, Failure}
+
+def validateAdult[F[_]](age: Int)(implicit me: MonadError[F, Throwable]): F[Int] = {
+  age >= 18 match{
+    case true => me.pure(age)
+    case false => me.raiseError(throw new java.lang.IllegalArgumentException("Age must be greater than or equal to 18"))
+  }
+}
+```
+```scala
+validateAdult[Try](18)
+// res11: scala.util.Try[Int] = Success(18)
+
+type ExceptionOr[A] = Either[Throwable, A]
+// defined type alias ExceptionOr
+```
+```scala
+scala> validateAdult[ExceptionOr](-1)
+java.lang.IllegalArgumentException: Age must be greater than or equal to 18
+  at .validateAdult(<console>:55)
+  ... 42 elided
 ```
 ---
 class: center, middle
