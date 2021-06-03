@@ -255,7 +255,7 @@ fa.map(g(f(_))) == fa.map(f).map(g)
 ```
 * The trick is not to confuse type constructors with generic types. 
 
-* List is a **typeconstructor**, 
+* List is a **type constructor**, 
 List[A] is a **type**:
 
 * There’s a close analogy here with functions and values. Functions are value constructors
@@ -811,6 +811,434 @@ factorial(50000).value
 ```
 * cost of eavl: It avoids consuming stack by creating a chain of function objects on the heap. There are still limits on
 how deeply we can nest computations, but they are bounded by the **size of the heap rather than the stack**.
+---
+###writer monad
+* cats.data.Writer is a monad that lets us carry a log along with a computation
+
+ex: recording sequences of steps in multithreaded computations where standard
+ imperative logging techniques can result in interleaved messages from different contexts
+
+* *cats.data* include writer, reader, state, monad transformers and validated
+
+```scala
+import cats.data.Writer
+import cats.instances.vector._ // for Monoid
+Writer(Vector(
+"It was the best of times",
+"it was the worst of times"
+), 1859)
+// res0: cats.data.WriterT[cats.package.Id, Vector[String], Int] = //WriterT((Vector("It was the best of times", "it was
+//the worst of //times"),1859)
+```
+
+* writer is alias of writerT
+
+```scala
+type Writer[W, A] = WriterT[Id, W, A]
+```
+---
+####writer syntax:
+* user pure + monoid
+
+```scala
+import cats.instances.vector._ // for Monoid
+import cats.syntax.applicative._ // for pure
+type Logged[A] = Writer[Vector[String], A]
+123.pure[Logged]
+// res1: Logged[Int] = WriterT((Vector(), 123))
+```
+
+* use tell for create Writer[Unit]
+
+```scala
+import cats.syntax.writer._ // for tell
+Vector("msg1", "msg2", "msg3").tell
+// res2: Writer[Vector[String], Unit] = WriterT(
+//(Vector("msg1", "msg2", "msg3"), ())
+// )
+```
+---
+* use run for get writer both result
+
+```scala
+import cats.syntax.writer._ // for writer
+val a = Writer(Vector("msg1", "msg2", "msg3"), 123)
+// a: cats.data.WriterT[cats.package.Id, Vector[String], Int] = WriterT(
+//(Vector("msg1", "msg2", "msg3"), 123)
+// )
+val b = 123.writer(Vector("msg1", "msg2", "msg3"))
+// b: Writer[Vector[String], Int] = WriterT(
+//(Vector("msg1", "msg2", "msg3"), 123)
+// )
+val aResult: Int = a.value
+// aResult: Int = 123
+val aLog: Vector[String] = a.written
+// aLog: Vector[String] = Vector("msg1", "msg2", "msg3")
+val (log, result) = b.run
+// log: Vector[String] = Vector("msg1", "msg2", "msg3")
+// result: Int = 123
+```
+---
+* concat log in writer
+
+```tut:book
+import cats.data.Writer
+import cats.instances.all._
+import cats.syntax.writer._
+import cats.syntax.applicative._
+type Logged[A] = Writer[Vector[String], A]
+
+val writer1 = for {
+  a <- 10.pure[Logged] 
+  _ <- Vector("a", "b" , "c" ).tell 
+  b <- 32.writer(Vector("x", "y" , "z" )) 
+} yield a + b // writer1:
+
+writer1.run
+```
+* use mapWritten to transform log in writer
+
+```tut:book
+val writer2 = writer1.mapWritten(_.map(_.toUpperCase))
+```
+---
+* transform log and value simutaneously by bimap and mapBoth
+
+```scala
+val writer3 = writer1.bimap(
+  log => log.map(_.toUpperCase),
+  res => res * 100
+)
+// writer3: cats.data.WriterT[cats.package.Id, Vector[String], Int] =
+// WriterT(
+// (Vector("A", "B", "C", "X", "Y", "Z"), 4200)
+// )
+writer3.run
+// res5: (Vector[String], Int) = (Vector("A", "B", "C", "X", "Y", "Z"), 4200)
+val writer4 = writer1.mapBoth { (log, res) =>
+  val log2 = log.map(_ + "!")
+  val res2 = res * 1000
+(log2, res2)
+}
+// writer4: cats.data.WriterT[cats.package.Id, Vector[String], Int] =
+// WriterT(
+// (Vector("a!", "b!", "c!", "x!", "y!", "z!"), 42000)
+// )
+writer4.run
+// res6: (Vector[String], Int) = (
+// Vector("a!", "b!", "c!", "x!", "y!", "z!"),
+// 42000
+// )
+```
+---
+* reset: reset log by reset function
+* swap: swap log and value
+
+```scala
+val writer5 = writer1.reset
+// writer5: cats.data.WriterT[cats.package.Id, Vector[String], Int] =
+// WriterT(
+//(Vector(), 42)
+// )
+writer5.run
+// res7: (Vector[String], Int) = (Vector(), 42)
+val writer6 = writer1.swap
+// writer6: cats.data.WriterT[cats.package.Id, Int, Vector[String]] =
+// WriterT(
+// (42, Vector("a", "b", "c", "x", "y", "z"))
+// )
+writer6.run
+// res8: (Int, Vector[String]) = (42, Vector("a", "b", "c", "x", "y",
+// "z"))
+```
+---
+###reader monad
+* cats.data.Reader is a monad that allows us to sequence operations that depend on
+ some input. ex: common use case is **dependency injection**
+
+*  We can create a Reader[A, B] from a function A => B using the Reader.apply constructor:
+
+```tut:silent
+import cats.data.Reader
+final case class Cat(name: String, favoriteFood: String)
+```
+```tut:book
+val catName: Reader[Cat, String] = Reader(cat => cat.name)
+  catName.run(Cat("Garfield", "lasagne"))
+```
+---
+* The power of Readers comes from their map and flatMap methods to make **sequencing operation**
+
+```scala
+val feedKitty: Reader[Cat, String] =
+Reader(cat => s"Have a nice bowl of ${cat.favoriteFood}")
+val greetAndFeed: Reader[Cat, String] =
+for {
+  greet <- greetKitty 
+  feed <- feedKitty 
+} yield s"$greet. $feed." 
+
+greetAndFeed(Cat("Garfield", "lasagne" )) // res3:
+cats.package.Id[String]="Hello Garfield. Have a nice bowl of // lasagne." 
+greetAndFeed(Cat("Heathcliff", "junk food")) 
+// res4: cats.package.Id[String]="Hello Heathcliff. Have a nice bowl
+// of junk food."
+```
+---
+* reader monad execise 1
+
+```tut:silent
+import cats.data.Reader
+import cats.Eq
+import cats.instances.all._
+import cats.syntax.eq._ //for eq
+
+final case class Db(
+    usernames: Map[Int, String],
+    passwords: Map[String, String]
+)
+
+type DbReader[A] = Reader[Db, A]
+
+def findUsername(userId: Int): DbReader[Option[String]] = {
+    Reader(db => db.usernames.get(userId))
+}
+
+def checkPassword(usernameOpt: Option[String], password: String): DbReader[Boolean] = {
+    Reader(db => usernameOpt.map(username => db.passwords.get(username).exists(i => i === password))
+    .getOrElse(false)
+    )
+}
+
+def checkLogin(userId: Int, password: String): DbReader[Boolean] = {
+    for {
+        nameOpt <- findUsername(userId)
+        isValid <- checkPassword(nameOpt, password)
+    } yield {
+        isValid
+    }
+}
+```
+---
+* reader monad execise 1(cont.)
+
+```tut:book
+val users = Map(
+    1 -> "dade",
+    2 -> "kate",
+    3 -> "margo"
+)
+val passwords = Map(
+  "dade" -> "zerocool",
+  "kate" -> "acidburn",
+  "margo" -> "secret"
+)
+val db = Db(users, passwords)
+checkLogin(1, "zerocool").run(db)
+
+checkLogin(4, "davinci").run(db)
+```
+---
+#### when to use Reader?
+* how many ways to do dependency injection?
+  1. methods with multiple parameter lists
+  2. implicit parameters and type classes
+  3. cake pattern and DI frameworks(google guice)
+
+* Readers are most useful in situations where:
+  1. we are constructing a program that can easily be represented by a function;
+  2. we need to defer injection of a known parameter or set of parameters;
+  3. we want to be able to test parts of the program in isolation.
+---
+###State Monad
+* *cats.data.State* allows us to pass additional state around as part of a computation.
+type **S => (S, A)** . S is the type of the state and A is the type of the result.
+
+```tut:book
+import cats.data.State
+val a = State[Int, String]{ state =>
+  (state, s"The state is $state")
+}
+```
+* transforms an input state to an output state;
+* computes a result.
+---
+* run, runS, runA
+
+```scala
+// Get the state and the result:
+val (state, result) = a.run(10).value
+// state: Int = 10
+// result: String = "The state is 10"
+// Get the state, ignore the result:
+val justTheState = a.runS(10).value
+// justTheState: Int = 10
+// Get the result, ignore the state:
+val justTheResult = a.runA(10).value
+// justTheResult: String = "The state is 10"
+```
+---
+* compose and transform state monad
+
+```scala
+val step1 = State[Int, String]{ num =>
+val ans = num + 1
+(ans, s"Result of step1: $ans")
+}
+val step2 = State[Int, String]{ num =>
+val ans = num * 2
+(ans, s"Result of step2: $ans")
+}
+val both = for {
+  a <- step1 
+  b <- step2 
+} yield (a, b) 
+val (state, result)=both.run(20).value 
+// state: Int=42 
+// result: (String,  String)=("Result of step1: 21", "Result of step2: 42" )
+```
+---
+* Cats provides several convenience constructors for creating primitive steps:
+  * get extracts the state as the result;
+  * set updates the state and returns unit as the result;
+  * pure ignores the state and returns a supplied result;
+  * inspect extracts the state via a transformation function;
+  * modify updates the state using an update function.
+```scala
+val getDemo = State.get[Int]
+// getDemo: State[Int, Int] = cats.data.IndexedStateT@796af713
+getDemo.run(10).value
+// res1: (Int, Int) = (10, 10)
+val setDemo = State.set[Int](30)
+// setDemo: State[Int, Unit] = cats.data.IndexedStateT@f9e66fa
+setDemo.run(10).value
+// res2: (Int, Unit) = (30, ())
+val pureDemo = State.pure[Int, String]("Result")
+// pureDemo: State[Int, String] = cats.data.IndexedStateT@439e3ee4
+pureDemo.run(10).value
+// res3: (Int, String) = (10, "Result")
+val inspectDemo = State.inspect[Int, String](x => s"${x}!")
+// inspectDemo: State[Int, String] = cats.data.IndexedStateT@77263be4
+inspectDemo.run(10).value
+// res4: (Int, String) = (10, "10!")
+val modifyDemo = State.modify[Int](_ + 1)
+// modifyDemo: State[Int, Unit] = cats.data.IndexedStateT@44ddcbfc
+modifyDemo.run(10).value
+// res5: (Int, Unit) = (11, ())
+```
+---
+```tut:book
+import cats.data.State
+import State._
+val program: State[Int, (Int, Int, Int)] = for {
+  a <- get[Int] 
+  _ <- set[Int](a + 1) 
+  b <- get[Int] 
+  _ <- modify[Int](_ + 1) 
+  c <- inspect[Int, Int](_ * 1000) 
+} yield (a, b, c) 
+
+val (state, result)=program.run(1).value 
+```
+---
+* defining custom monad
+* implement: pure, flatMap, tailRecM
+  * ex: Option:
+
+```scala
+import cats.Monad
+import scala.annotation.tailrec
+val optionMonad = new Monad[Option] {
+  def flatMap[A, B](opt: Option[A])(fn: A => Option[B]): Option[B] =
+    opt flatMap fn
+  
+  def pure[A](opt: A): Option[A] =
+    Some(opt)
+  
+  @tailrec
+  def tailRecM[A, B](a: A)(fn: A => Option[Either[A, B]]): Option[B] =
+    fn(a) match {
+      case None => None
+      case Some(Left(a1)) => tailRecM(a1)(fn)
+      case Some(Right(b)) => Some(b)
+    }
+  }
+}
+```
+---
+* flatMap syntax is not stack safe
+
+```scala
+import cats.syntax.flatMap._ // For flatMap
+def retry[F[_]: Monad, A](start: A)(f: A => F[A]): F[A] =
+  f(start).flatMap{ a =>
+    retry(a)(f)
+  }
+```
+```scala
+retry(100000)(a => if(a == 0) None else Some(a - 1))
+//get StackOverflowError .
+```
+
+* use tail recursion to fix it
+
+```scala
+import cats.syntax.functor._ // for map
+def retryTailRecM[F[_]: Monad, A](start: A)(f: A => F[A]): F[A] =
+Monad[F].tailRecM(start){ a =>
+f(a).map(a2 => Left(a2))
+}
+
+retryTailRecM(100000)(a => if(a == 0) None else Some(a - 1))
+// res2: Option[Int] = None
+```
+---
+* some convinent util: iterateWhileM
+
+```tut:book
+import cats.syntax.monad._ // for iterateWhileM
+def retryM[F[_]: Monad, A](start: A)(f: A => F[A]): F[A] =
+  start.iterateWhileM(f)(a => true)
+retryM(100000)(a => if(a == 0) None else Some(a - 1))
+```
+* monad for sequencing operation, ex:
+  * Option represents a computation that can fail without an error message,
+  * Either represents computations that can fail with a message,
+  * List represents multiple possible results, and
+  * Future represents a computation that may produce a value at some point in the future.
+  * some custom: Id , Reader , Writer , and State
+
+---
+###monad transformers
+* Cats defines transformers for a variety of monads, 
+* each providing the extra knowledge we need to compose that monad with others.
+* The type signatures of monad transformers are written **from the inside out**, 
+so an **EitherT[Option, String, A]** is a wrapper for an **Option[Either[String, A]]**
+
+ex: EitherT composes Either with other monads, OptionT composes Option
+```scala
+import cats.data.OptionT
+type ListOption[A] = OptionT[List, A]
+
+import cats.instances.list._
+// for Monad
+import cats.syntax.applicative._ // for pure
+val result1: ListOption[Int] = OptionT(List(Option(10)))
+// result1: ListOption[Int] = OptionT(List(Some(10)))
+val result2: ListOption[Int] = 32.pure[ListOption]
+// result2: ListOption[Int] = OptionT(List(Some(32)))
+result1.flatMap { (x: Int) =>
+  result2.map { (y: Int) =>
+    x + y
+  }
+}
+// res1: OptionT[List, Int] = OptionT(List(Some(42)))
+```
+---
+* The combined map and flatMap methods allow us to use both component monads 
+without having to recursively unpack and repack values at each stage in the computation.
+
+
 ---
 ###Reference
 * [scala with cats2](https://www.scalawithcats.com/ "www.scalawithcats.com")
