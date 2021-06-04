@@ -13,6 +13,7 @@ lazy val baseSettings: Seq[Setting[_]] = Seq(
     "-Xfuture",
     "-Ypartial-unification"
   ),
+  addCompilerPlugin("org.typelevel" % "kind-projector" % "0.11.3" cross CrossVersion.full),
   resolvers += Resolver.sonatypeRepo("releases"),
   libraryDependencies += "org.typelevel" %% "cats-core" % "2.3.0"
 )

@@ -1238,7 +1238,678 @@ result1.flatMap { (x: Int) =>
 * The combined map and flatMap methods allow us to use both component monads 
 without having to recursively unpack and repack values at each stage in the computation.
 
+* The main concepts we have to cover to understand monad transformers are:
+  * the available transformer classes;
+  * how to build stacks of monads using transformers;
+  * how to construct instances of a monad stack; and
+  * how to pull apart a stack to access the wrapped monads.
 
+* transformer class
+  * cats.data.OptionT for Option ;
+  * cats.data.EitherT for Either ;
+  * cats.data.ReaderT ( == Kleisli) for Reader ;
+  * cats.data.WriterT for Writer ;
+  * cats.data.StateT for State ;
+  * cats.data.IdT for the Id monad.
+---
+ * example of 2 types constructor: Either[String, Option]
+
+```scala
+// Alias Either to a type constructor with one parameter:
+type ErrorOr[A] = Either[String, A]
+// Build our final monad stack using OptionT:
+type ErrorOrOption[A] = OptionT[ErrorOr, A]
+
+import cats.instances.either._ // for Monad
+val a = 10.pure[ErrorOrOption]
+// a: ErrorOrOption[Int] = OptionT(Right(Some(10)))
+val b = 32.pure[ErrorOrOption]
+// b: ErrorOrOption[Int] = OptionT(Right(Some(32)))
+val c = a.flatMap(x => b.map(y => x + y))
+// c: OptionT[ErrorOr, Int] = OptionT(Right(Some(42)))
+```
+---
+* example of Future of an Either of Option . Once again we build this from 
+the inside out with an OptionT of an EitherT of Future
+
+```tut:silent
+import scala.concurrent.Future
+import cats.data.{EitherT, OptionT}
+type FutureEither[A] = EitherT[Future, String, A]
+type FutureEitherOption[A] = OptionT[FutureEither, A]
+
+import cats.instances.future._ // for Monad
+import scala.concurrent.Await
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+
+```
+```tut:book
+val futureEitherOr: FutureEitherOption[Int] = for {
+  a <- 10.pure[FutureEitherOption] 
+  b <- 32.pure[FutureEitherOption] 
+} yield a + b
+```
+---
+* NOTE: **Kind Projector** plugin can help for enhances Scala’s type syntax to make it easier to
+define partially applied type constructors, 
+* Kind Projector is a syntax sugar for making anonymous type declaration as this type just used once
+  * ex:
+
+```tut:book
+import cats.instances.option._ // for Monad 
+123.pure[EitherT[Option, String, *]]
+```
+* [kind projector](https://github.com/typelevel/kind-projector)
+---
+* use value to get untransformed stack once layer
+
+```scala
+// Extracting the untransformed monad stack:
+errorStack1.value
+// res4: ErrorOr[Option[Int]] = Right(Some(10))
+// Mapping over the Either in the stack:
+errorStack2.value.map(_.getOrElse(-1))
+// res5: Either[String, Int] = Right(32)
+```
+
+* to unpack all may need to call value many times
+
+```scala
+futureEitherOr
+// res6: FutureEitherOption[Int] = OptionT(
+//EitherT(Future(Success(Right(Some(42)))))
+// )
+val intermediate = futureEitherOr.value
+// intermediate: FutureEither[Option[Int]] = EitherT(
+//Future(Success(Right(Some(42))))
+// )
+val stack = intermediate.value
+// stack: Future[Either[String, Option[Int]]] = Future(Success(Right(
+// Some(42))))
+Await.result(stack, 1.second)
+// res7: Either[String, Option[Int]] = Right(Some(42))
+```
+* default transformer instances in cats
+
+```scala
+type Reader[E, A] = ReaderT[Id, E, A] // = Kleisli[Id, E, A]
+type Writer[W, A] = WriterT[Id, W, A]
+type State[S, A] = StateT[Id, S, A]
+```
+---
+* easier way to just use transformer in local
+```scala
+import cats.data.Writer
+type Logged[A] = Writer[List[String], A]
+// Methods generally return untransformed stacks:
+def parseNumber(str: String): Logged[Option[Int]] =
+  util.Try(str.toInt).toOption match {
+    case Some(num) => Writer(List(s"Read $str"), Some(num))
+    case None => Writer(List(s"Failed on $str"), None)
+  }
+// Consumers use monad transformers locally to simplify composition:
+def addAll(a: String, b: String, c: String): Logged[Option[Int]] = {
+  import cats.data.OptionT
+  val result = for {
+    a <- OptionT(parseNumber(a))
+    b <- OptionT(parseNumber(b))
+    c <- OptionT(parseNumber(c))
+  } yield a + b + c
+  
+  result.value
+}
+// This approach doesn't force OptionT on other users' code:
+val result1 = addAll("1", "2", "3")
+// result1: Logged[Option[Int]] = WriterT(
+//(List("Read 1", "Read 2", "Read 3"), Some(6))
+// )
+val result2 = addAll("1", "a", "3")
+// result2: Logged[Option[Int]] = WriterT(
+//(List("Read 1", "Failed on a"), None)
+// )
+```
+---
+### semigroupal and applicative
+* request: monad is **sequencing operation** and **fail fast**, in some case we want to be **concurrent** and collect all fail
+  * ex1: web form want to collect all error rather than fail fast
+  * ex2: future want to be runned parallel
+* We need a weaker construct one that doesn’t guarantee sequencing—
+to achieve the result we want. we will look at three type classes that support this pattern:
+  * **Semigroupal** encompasses the notion of composing pairs of contexts. Cats provides a **cats.syntax.apply** module 
+  that makes use of Semigroupal and Functor to allow users to sequence functions with multiple arguments.
+  * **Parallel** converts types with a Monad instance to a related type with a Semigroupal instance.
+  * **Applicative** extends Semigroupal and Functor . It provides a way of applying functions to parameters within a context. 
+  Applicative is the source of the pure method we introduced in Chapter 4.
+---
+* Semigroupal: join two context, behavior likes zip
+  ```scala
+  trait Semigroupal[F[_]] {
+    def product[A, B](fa: F[A], fb: F[B]): F[(A, B)]
+  }
+```
+  * ex:
+
+```scala
+import cats.Semigroupal
+import cats.instances.option._ // for Semigroupal
+Semigroupal[Option].product(Some(123), Some("abc"))
+// res1: Option[(Int, String)] = Some((123, "abc"))
+Semigroupal[Option].product(None, Some("abc"))
+// res2: Option[Tuple2[Nothing, String]] = None
+Semigroupal[Option].product(Some(123), None)
+// res3: Option[Tuple2[Int, Nothing]] = None
+```
+* clarify: where Semigroup is for joining values
+
+```scala
+trait Semigroup[A] {
+  def combine(x: A, y: A): A
+}
+```
+---
+* semigroupal tuple2 through tuple22
+
+```scala
+import cats.instances.option._ // for Semigroupal
+Semigroupal.tuple3(Option(1), Option(2), Option(3))
+// res4: Option[(Int, Int, Int)] = Some((1, 2, 3))
+Semigroupal.tuple3(Option(1), Option(2), Option.empty[Int])
+// res5: Option[(Int, Int, Int)] = None
+```
+* semigroup map2 to map22
+
+```scala
+Semigroupal.map3(Option(1), Option(2), Option(3))(_ + _ + _)
+// res6: Option[Int] = Some(6)
+Semigroupal.map2(Option(1), Option.empty[Int])(_ + _)
+// res7: Option[Int] = None
+```
+* There are also methods contramap2 through contramap22 and imap2 through imap22
+* **import cats.syntax.apply._** for mapN
+---
+* Semigroupal Laws: the product method must be associative.
+  ```scala
+  product(a, product(b, c)) == product(product(a, b), c)
+```
+
+* tupled method
+  ```scala
+  (Option(123), Option("abc"), Option(true)).tupled
+// res9: Option[(Int, String, Boolean)] = Some((123, "abc", true))
+```
+
+* mapN
+  ```scala
+  final case class Cat(name: String, born: Int, color: String)
+(
+  Option("Garfield"),
+  Option(1978),
+  Option("Orange & black")
+).mapN(Cat.apply)
+// res10: Option[Cat] = Some(Cat("Garfield", 1978, "Orange & black"))
+```
+---
+* sometimes, mapN is effective than monad transformer,ex:
+
+```scala
+import cats.effect.IO
+import cats.implicits._
+
+//interchangable with e.g. Monix's Task
+type Query[T] = IO[Option[T]]
+
+def defineMead(qName: Query[String],
+               qHoneyRatio: Query[Double],
+               qAgingYears: Query[Double]): Query[Mead] =
+  (for {
+    name       <- OptionT(qName)
+    honeyRatio <- OptionT(qHoneyRatio)
+    agingYears <- OptionT(qAgingYears)
+  } yield Mead(name, honeyRatio, agingYears)).value
+
+def defineMead2(qName: Query[String],
+                qHoneyRatio: Query[Double],
+                qAgingYears: Query[Double]): Query[Mead] =
+  for {
+    name       <- qName
+    honeyRatio <- qHoneyRatio
+    agingYears <- qAgingYears
+  } yield (name, honeyRatio, agingYears).mapN(Mead)
+```
+---
+* mapN is also type checked
+  ```scala 
+val add: (Int, Int) => Int = (a, b) => a + b
+// add: (Int, Int) => Int = <function2>
+(Option(1), Option(2), Option(3)).mapN(add)
+// error: ':' expected but '(' found.
+// error: identifier expected but '}' found.
+(Option("cats"), Option(true)).mapN(add)
+// error: ':' expected but '(' found.
+// error: identifier expected but '}' found.
+```
+
+* imapN on semigroupal
+  ```scala
+import cats.Monoid
+import cats.instances.int._ // for Monoid
+import cats.instances.invariant._ // for Semigroupal
+import cats.instances.list._ // for Monoid
+import cats.instances.string._ // for Monoid
+import cats.syntax.apply._ // for imapN
+final case class Cat(name: String,
+  yearOfBirth: Int,
+  favoriteFoods: List[String]
+)
+val tupleToCat: (String, Int, List[String]) => Cat = Cat.apply _
+val catToTuple: Cat => (String, Int, List[String]) =
+  cat => (cat.name, cat.yearOfBirth, cat.favoriteFoods)
+implicit val catMonoid: Monoid[Cat] = (
+  Monoid[String],
+  Monoid[Int],
+  Monoid[List[String]]
+).imapN(tupleToCat)(catToTuple)
+```
+---
+* add object together
+  ```scala
+import cats.syntax.semigroup._ // for |+|
+val garfield = Cat("Garfield", 1978, List("Lasagne"))
+val heathcliff = Cat("Heathcliff", 1988, List("Junk Food"))
+garfield |+| heathcliff
+// res14: Cat = Cat("GarfieldHeathcliff", 3966, List("Lasagne", "Junk Food"))
+```
+
+* Future provide **parallel** as opposed to sequential execution:
+  ```scala
+import cats.Semigroupal
+import cats.instances.future._ // for Semigroupal
+import scala.concurrent._
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
+val futurePair = Semigroupal[Future]
+.product(Future("Hello"), Future(123))
+Await.result(futurePair, 1.second)
+// res0: (String, Int) = ("Hello", 123)
+```
+---
+* use mapN on future, to zip fixed numbers of Futures
+  
+```tut:book
+  import cats.syntax.apply._ // for mapN
+case class Cat(
+name: String,
+yearOfBirth: Int,
+favoriteFoods: List[String]
+)
+val futureCat = (
+  Future("Garfield"),
+  Future(1978),
+  Future(List("Lasagne"))
+).mapN(Cat.apply)
+Await.result(futureCat, 1.second)
+```
+---
+* list: Combining Lists with Semigroupal produces some potentially unexpected results
+  * ex:
+
+```tut:book
+import cats.Semigroupal
+import cats.instances.list._ // for Semigroupal
+Semigroupal[List].product(List(1, 2), List(3, 4))
+```
+
+* Either use product still get fail fast result:
+  
+```tut:book
+import cats.instances.either._ // for Semigroupal
+type ErrorOr[A] = Either[Vector[String], A]
+Semigroupal[ErrorOr].product(
+  Left(Vector("Error 1")),
+  Left(Vector("Error 2"))
+)
+```
+---
+* The reason for the surprising results for List and Either is that they are both monads.
+* If we have a monad we can implement product as follows.
+
+```scala
+import cats.Monad
+import cats.syntax.functor._ // for map
+import cats.syntax.flatMap._ // for flatmap
+def product[F[_]: Monad, A, B](fa: F[A], fb: F[B]): F[(A,B)] =
+  fa.flatMap(a =>
+    fb.map(b =>
+      (a, b)
+    )
+  )
+```
+* flatMap provides sequential ordering, so product provides the same….
+* how to fix it?
+  * create useful data types that have instances of Semigroupal (and Applicative )
+    but not Monad .=> The **Parallel type class** for the rescue
+
+---
+####The Parallel type class
+* from
+
+```scala
+import cats.syntax.apply._ // for tupled
+import cats.instances.vector._ // for Semigroup on Vector
+(error1, error2).tupled
+// res1: ErrorOr[(Int, Int)] = Left(Vector("Error 1"))
+```
+* to
+
+```scala
+import cats.syntax.parallel._ // for parTupled
+(error1, error2).parTupled
+// res2: ErrorOr[(Int, Int)] = Left(Vector("Error 1", "Error 2"))
+```
+---
+* more example on list
+
+```scala
+import cats.instances.list._ // for Semigroup on List
+type ErrorOrList[A] = Either[List[String], A]
+val errStr1: ErrorOrList[Int] = Left(List("error 1"))
+val errStr2: ErrorOrList[Int] = Left(List("error 2"))
+(errStr1, errStr2).parTupled
+// res3: ErrorOrList[(Int, Int)] = Left(List("error 1", "error 2"))
+```
+
+* most commonly used is parMapN
+
+```scala
+val success1: ErrorOr[Int] = Right(1)
+val success2: ErrorOr[Int] = Right(2)
+val addTwo = (x: Int, y: Int) => x + y
+(error1, error2).parMapN(addTwo)
+// res4: ErrorOr[Int] = Left(Vector("Error 1", "Error 2"))
+(success1, success2).parMapN(addTwo)
+// res5: ErrorOr[Int] = Right(3)
+```
+---
+* how Parallel works
+
+```scala
+trait Parallel[M[_]] {
+  type F[_]
+  def applicative: Applicative[F]
+  def monad: Monad[M]
+  def parallel: ~>[M, F] //FunctionK
+}
+```
+* there must be a Monad instance for M ;
+* there is a related type constructor F that has an Applicative instance;
+* we can convert M to F .
+  * **FunctionK M ~> F** is a function from a value with type M[A] to a value with type F[A]
+* ex: FunctionK that converts an Option to a List
+
+```scala
+import cats.arrow.FunctionK
+object optionToList extends FunctionK[Option, List] {
+def apply[A](fa: Option[A]): List[A] =
+  fa match {
+    case None => List.empty[A]
+    case Some(a) => List(a)
+  }
+}
+optionToList(Some(1))
+// res6: List[Int] = List(1)
+optionToList(None)
+// res7: List[Nothing] = List()
+```
+---
+* Does List have a Parallel instance?yes
+
+```tut:book
+import cats.instances.list._
+import cats.syntax.parallel._
+(List(1, 2), List(3, 4)).tupled
+(List(1, 2), List(3, 4)).parTupled
+```
+
+* apply and applicative
+
+```scala
+trait Apply[F[_]] extends Semigroupal[F] with Functor[F] {
+  def ap[A, B](ff: F[A => B])(fa: F[A]): F[B]
+  def product[A, B](fa: F[A], fb: F[B]): F[(A, B)] =
+  ap(map(fa)(a => (b: B) => (a, b)))(fb)
+}
+
+trait Applicative[F[_]] extends Apply[F] {
+  def pure[A](a: A): F[A]
+}
+```
+---
+###Traverse and Foldable
+* Foldable abstracts the familiar foldLeft and foldRight operations;
+* Traverse is a higher‐level abstraction that uses Applicatives to iterate with less pain than folding.
+
+* fold example
+
+```scala
+def show[A](list: List[A]): String =
+list.foldLeft("nil")((accum, item) => s"$item then $accum")
+show(Nil)
+// res0: String = "nil"
+show(List(1, 2, 3))
+// res1: String = "3 then 2 then 1 then nil"
+```
+---
+* foldLeft and foldRight are equivalent if our binary operation is associative.ex:
+
+```tut:book
+List(1, 2, 3).foldLeft(0)(_ + _)
+List(1, 2, 3).foldRight(0)(_ + _)
+```
+* not associative case
+
+```tut:book
+List(1, 2, 3).foldLeft(0)(_ - _)
+List(1, 2, 3).foldRight(0)(_ - _)
+```
+---
+* Foldable example: list foldLeft
+
+```tut:book
+import cats.Foldable
+import cats.instances.list._ // for Foldable
+val ints = List(1, 2, 3)
+Foldable[List].foldLeft(ints, 0)(_ + _)
+```
+
+* option foldLeft
+
+```tut:book
+import cats.instances.option._ // for Foldable
+val maybeInt = Option(123)
+Foldable[Option].foldLeft(maybeInt, 10)(_ * _)
+```
+---
+* foldRight of Foldable with Eval monad(for stack safe)
+* original foldRight is not stack safe, especially for lazyList
+
+```scala
+def foldRight[A, B](fa: F[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B]
+```
+
+* original foldRight
+
+```scala
+import 
+def bigData = (1 to 100000).to(LazyList)
+bigData.foldRight(0L)(_ + _)
+// java.lang.StackOverflowError ...
+```
+* LazyList is not found on scala2.12
+* clarify:In standard scala lib, The most commonly used collection types, such as List and Vector , provide stack safe
+implementations of foldRight :
+
+```tut:book
+(1 to 100000).toList.foldRight(0L)(_ + _)
+(1 to 100000).toVector.foldRight(0L)(_ + _)
+```
+---
+* foldRight with eval
+
+```scala
+//only work after scala2.13
+import cats.instances.lazyList._ // for Foldable
+val eval: Eval[Long] =
+Foldable[LazyList].foldRight(bigData, Eval.now(0L)) { (num, eval) =>
+eval.map(_ + num)
+}
+eval.value
+// res3: Long = 5000050000L
+```
+---
+* In addition to these familiar methods, Cats provides two methods that make use of Monoids :
+  * **combineAll (and its alias fold )** combines all elements in the sequence using their Monoid ;
+  * **foldMap** maps a user‐supplied function over the sequence and combines the results using a Monoid .
+* ex:
+
+```tut:book
+import cats.instances.int._ // for Monoid
+Foldable[List].combineAll(List(1, 2, 3))
+```
+
+* foldMap, map and concat
+
+```tut:book
+import cats.instances.string._ // for Monoid
+Foldable[List].foldMap(List(1, 2, 3))(_.toString)
+```
+---
+* compose Foldables
+
+```tut:book
+import cats.instances.vector._ // for Monoid
+val ints = List(Vector(1, 2, 3), Vector(4, 5, 6))
+(Foldable[List] compose Foldable[Vector]).combineAll(ints)
+```
+
+syntax for foldable
+
+```tut:book
+import cats.syntax.foldable._ // for combineAll and foldMap
+List(1, 2, 3).combineAll
+List(1, 2, 3).foldMap(_.toString)
+```
+---
+### Traverse
+* Traverse type class is a higher level tool that leverages Applicatives to provide a more convenient, more lawful,
+pattern for iteration.
+
+* Future.traverse in the standard library looks like this:
+
+```scala
+def traverse[A, B](values: List[A])(func: A => Future[B]): Future[List[B]] =
+  values.foldLeft(Future(List.empty[B])) { (accum, host) =>
+val item = func(host)
+for {
+  accum <- accum 
+  item <- item 
+} yield accum :+ item } 
+```
+* high level interface 
+  * start with a List[A] ; 
+  * provide a function A=> Future[B] ;
+  * end up with a Future[List[B]] .
+---
+* Future.sequence is extended from traverse
+  
+```scala
+def sequence[B](futures: List[Future[B]]): Future[List[B]] =
+  traverse(futures)(identity)
+```
+* start with a List[Future[A]] ;
+*  end up with a Future[List[A]] .
+---
+* Cats’ Traverse type class generalises these patterns to work with any type
+of Applicative : Future , Option , Validated , and so on
+
+```tut:silent
+import cats.Applicative
+import cats.syntax.applicative._ // for pure
+def listTraverse[F[_]: Applicative, A, B](list: List[A])(func: A => F[B]): F[List[B]] =
+  list.foldLeft(List.empty[B].pure[F]) { (accum, item) =>
+    (accum, func(item)).mapN(_ :+ _)
+  }
+def listSequence[F[_]: Applicative, B](list: List[F[B]]): F[List[B]] =
+  listTraverse(list)(identity)
+```
+---
+* use traverse with validated
+
+```tut:silent
+import cats.data.Validated
+import cats.instances.list._ // for Monoid
+
+type ErrorsOr[A] = Validated[List[String], A]
+
+def process(inputs: List[Int]): ErrorsOr[List[Int]] =
+  listTraverse(inputs) { n =>
+    if(n % 2 == 0) {
+      Validated.valid(n)
+    } else {
+      Validated.invalid(List(s"$n is not even"))
+    }
+}
+```
+```tut:book
+process(List(2, 4, 6))
+process(List(1, 2, 3))
+```
+---
+* Traverse definition
+
+```scala
+package cats
+trait Traverse[F[_]] {
+  def traverse[G[_]: Applicative, A, B](inputs: F[A])(func: A => G[B]): G[F[B]]
+  def sequence[G[_]: Applicative, B](inputs: F[G[B]]): G[F[B]] =
+    traverse(inputs)(identity)
+}
+```
+---
+* Traverse example
+
+```tut:silent
+import cats.Traverse
+import cats.instances.future._ // for Applicative
+import cats.instances.list._ // for Traverse
+
+import scala.concurrent._
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
+val hostnames = List(
+  "alpha.example.com",
+  "beta.example.com",
+  "gamma.demo.com"
+)
+def getUptime(hostname: String): Future[Int] =
+  Future(hostname.length * 60) // just for demonstration
+```
+```tut:book
+val totalUptime: Future[List[Int]] = Traverse[List].traverse(hostnames)(getUptime)
+
+Await.result(totalUptime, 1.second)
+val numbers = List(Future(1), Future(2), Future(3))
+val numbers2: Future[List[Int]] = Traverse[List].sequence(numbers)
+Await.result(numbers2, 1.second)
+```
+---
+* traverse syntax sugar
+
+```tut:book
+import cats.syntax.traverse._ // for sequence and traverse
+Await.result(hostnames.traverse(getUptime), 1.second)
+Await.result(numbers.sequence, 1.second)
+```
 ---
 ###Reference
 * [scala with cats2](https://www.scalawithcats.com/ "www.scalawithcats.com")
