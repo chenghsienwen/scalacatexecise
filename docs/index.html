@@ -29,13 +29,18 @@ class: center, middle
 
 # scala cat execise
 Chenghsien Wen • `@chenghsienwen`
+2021/06/17
 
 
 ???
 - notes here
 - see https://remarkjs.com/#1
 - see https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet
+---
+# About cat
+[github link](https://github.com/typelevel/cats "https://github.com/typelevel/cats")
 
+![:scale 100%](resources/cat-git.jpeg)
 ---
 # execise from scala with cats 2 book
 
@@ -137,6 +142,74 @@ implicit val showPerson: Show[Person] = Show.show(person => s"name: ${person.nam
 println(Person("John", 31).show)
 // name: John, age: 31
 ```
+---
+# how about type class in java?
+
+```java
+interface Show<A> {
+  String show(A a);
+
+  static Show<Integer> showInt() {
+    return i -> "int: " + i;
+  }
+}
+final class Functions {
+  static <A> String show(A a, Show<A> sh) {
+      return sh.show(a);
+  }
+}
+System.out.println(show(12, showInt()));
+```
+---
+#java type class with more type
+
+```java
+class Pair<A, B> {
+  private A first;
+  private B second;
+
+  public Pair(A first, B second) {
+    this.first = first;
+    this.second = second;
+  }
+
+  public A getFirst() {
+      return first;
+  }
+
+  public B getSecond() {
+      return second;
+    }
+}
+```
+---
+#java type class with more type(cont.)
+```java
+interface Show<A> {
+  String show(A a);
+
+  static Show<Integer> showInt() {
+    return i -> "int: " + i;
+  }
+  static Show<String> showString() {
+    return i -> "str: " + i;
+  }
+
+  static <A, B> Show<Pair<A, B>> showPair(Show<A> A, Show<B> B) {
+    return p -> "{" + A.show(p.getFirst()) + ", " + B.show(p.getSecond()) + "}";
+  }
+}
+
+final class Functions {
+  static <A> String show(A a, Show<A> sh) {
+    return sh.show(a);
+  }
+}
+var pair = new Pair<>(1, "hello");
+System.out.println(show(pair, showPair(showInt(), showString())));
+
+```
+* [more examples](https://github.com/zarinfam/java-type-classes-sample)
 ---
 #Eq
 * issue on **==**
@@ -360,10 +433,10 @@ scala> import com.vpon.cat.CodecInstances._
 import com.vpon.cat.CodecInstances._
 
 scala> implicit val intCodec: Codec[Int] = stringCodec.imap(_.toInt, _.toString)
-intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@f6e139b
+intCodec: com.vpon.cat.Codec[Int] = com.vpon.cat.Codec$$anon$1@264391d8
 
 scala> implicit val booleanCodec: Codec[Boolean] = stringCodec.imap(_.toBoolean, _.toString)
-booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@59e64f41
+booleanCodec: com.vpon.cat.Codec[Boolean] = com.vpon.cat.Codec$$anon$1@4cd45d94
 ```
 ---
 * Contravariant and Invariant in Cats
@@ -819,22 +892,22 @@ import cats.Eval
 // import cats.Eval
 
 val now = Eval.now(math.random + 1000)
-// now: cats.Eval[Double] = Now(1000.6848834029146)
+// now: cats.Eval[Double] = Now(1000.7338056777214)
 
 val always = Eval.always(math.random + 3000)
-// always: cats.Eval[Double] = cats.Always@75e2bcd4
+// always: cats.Eval[Double] = cats.Always@1f64c77e
 
 val later = Eval.later(math.random + 2000)
-// later: cats.Eval[Double] = cats.Later@4f97451c
+// later: cats.Eval[Double] = cats.Later@2673f766
 
 now.value
-// res18: Double = 1000.6848834029146
+// res18: Double = 1000.7338056777214
 
 always.value
-// res19: Double = 3000.7071578217715
+// res19: Double = 3000.831740678803
 
 later.value
-// res20: Double = 2000.1813202115932
+// res20: Double = 2000.4352373836941
 ```
 ---
 * mapping functions are always called lazily on demand ( **def semantics**):
@@ -851,7 +924,7 @@ val ans = for {
   a + b
 }
 // Calculating A
-// ans: cats.Eval[Int] = cats.Eval$$anon$4@542f631
+// ans: cats.Eval[Int] = cats.Eval$$anon$4@6a4be042
 
 ans.value // first access
 // Calculating B
@@ -874,7 +947,7 @@ val saying = Eval.always{ println("Step 1"); "The cat"
   }.map{ str => println("Step 2"); s"$str sat on" 
   }.memoize.map{ str => println("Step 3"); s"$str the mat" 
 }
-// saying: cats.Eval[String] = cats.Eval$$anon$4@1bea930a
+// saying: cats.Eval[String] = cats.Eval$$anon$4@588640e4
 
 saying.value // first access
 // Step 1
@@ -1096,7 +1169,7 @@ final case class Cat(name: String, favoriteFood: String)
 ```
 ```scala
 val catName: Reader[Cat, String] = Reader(cat => cat.name)
-// catName: cats.data.Reader[Cat,String] = Kleisli($$Lambda$67161/286630256@5946075a)
+// catName: cats.data.Reader[Cat,String] = Kleisli($$Lambda$11070/1739016115@54d1181d)
 
   catName.run(Cat("Garfield", "lasagne"))
 // res27: cats.Id[String] = Garfield
@@ -1204,7 +1277,7 @@ import cats.data.State
 val a = State[Int, String]{ state =>
   (state, s"The state is $state")
 }
-// a: cats.data.State[Int,String] = cats.data.IndexedStateT@3582b83c
+// a: cats.data.State[Int,String] = cats.data.IndexedStateT@43f4db7a
 ```
 * transforms an input state to an output state;
 * computes a result.
@@ -1287,7 +1360,7 @@ val program: State[Int, (Int, Int, Int)] = for {
   _ <- modify[Int](_ + 1) 
   c <- inspect[Int, Int](_ * 1000) 
 } yield (a, b, c) 
-// program: cats.data.State[Int,(Int, Int, Int)] = cats.data.IndexedStateT@3a66df8d
+// program: cats.data.State[Int,(Int, Int, Int)] = cats.data.IndexedStateT@2fe749c
 
 val (state, result)=program.run(1).value 
 // state: Int = 3
@@ -2122,7 +2195,7 @@ def getUptime(hostname: String): Future[Int] =
 ```
 ```scala
 val totalUptime: Future[List[Int]] = Traverse[List].traverse(hostnames)(getUptime)
-// totalUptime: scala.concurrent.Future[List[Int]] = Future(<not completed>)
+// totalUptime: scala.concurrent.Future[List[Int]] = Future(Success(List(1020, 960, 840)))
 
 Await.result(totalUptime, 1.second)
 // res52: List[Int] = List(1020, 960, 840)

@@ -30,13 +30,18 @@ class: center, middle
 
 # scala cat execise
 Chenghsien Wen • `@chenghsienwen`
+2021/06/17
 
 
 ???
 - notes here
 - see https://remarkjs.com/#1
 - see https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet
+---
+# About cat
+[github link](https://github.com/typelevel/cats "https://github.com/typelevel/cats")
 
+![:scale 100%](resources/cat-git.jpeg)
 ---
 # execise from scala with cats 2 book
 
@@ -129,6 +134,74 @@ implicit val showPerson: Show[Person] = Show.show(person => s"name: ${person.nam
 ```tut:book
 println(Person("John", 31).show)
 ```
+---
+# how about type class in java?
+
+```java
+interface Show<A> {
+  String show(A a);
+
+  static Show<Integer> showInt() {
+    return i -> "int: " + i;
+  }
+}
+final class Functions {
+  static <A> String show(A a, Show<A> sh) {
+      return sh.show(a);
+  }
+}
+System.out.println(show(12, showInt()));
+```
+---
+#java type class with more type
+
+```java
+class Pair<A, B> {
+  private A first;
+  private B second;
+
+  public Pair(A first, B second) {
+    this.first = first;
+    this.second = second;
+  }
+
+  public A getFirst() {
+      return first;
+  }
+
+  public B getSecond() {
+      return second;
+    }
+}
+```
+---
+#java type class with more type(cont.)
+```java
+interface Show<A> {
+  String show(A a);
+
+  static Show<Integer> showInt() {
+    return i -> "int: " + i;
+  }
+  static Show<String> showString() {
+    return i -> "str: " + i;
+  }
+
+  static <A, B> Show<Pair<A, B>> showPair(Show<A> A, Show<B> B) {
+    return p -> "{" + A.show(p.getFirst()) + ", " + B.show(p.getSecond()) + "}";
+  }
+}
+
+final class Functions {
+  static <A> String show(A a, Show<A> sh) {
+    return sh.show(a);
+  }
+}
+var pair = new Pair<>(1, "hello");
+System.out.println(show(pair, showPair(showInt(), showString())));
+
+```
+* [more examples](https://github.com/zarinfam/java-type-classes-sample)
 ---
 #Eq
 * issue on **==**
